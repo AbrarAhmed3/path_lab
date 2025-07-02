@@ -7,13 +7,8 @@ if (!isset($_SESSION['admin_logged_in'])) {
 include 'admin_header.php';
 include 'db.php';
 
-// Fetch categories and related departments
-$categories = $conn->query("
-    SELECT tc.category_id, tc.category_name, d.department_name 
-    FROM test_categories tc
-    LEFT JOIN departments d ON tc.department_id = d.department_id
-    ORDER BY tc.category_name ASC
-");
+// Fetch departments
+$departments = $conn->query("SELECT * FROM departments ORDER BY department_name ASC");
 
 // Handle form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
@@ -21,11 +16,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $unit = $_POST['unit'];
     $method = $_POST['method'];
     $ref_range = $_POST['ref_range'] ?? '';
-    $category_id = $_POST['category_id'];
+    $department_id = $_POST['department_id'];
     $price = $_POST['price'];
 
-    $stmt = $conn->prepare("INSERT INTO tests (name, unit, method, ref_range, category_id, price) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("ssssdi", $name, $unit, $method, $ref_range, $category_id, $price);
+    $stmt = $conn->prepare("INSERT INTO tests (name, unit, method, ref_range, department_id, price) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("ssssdi", $name, $unit, $method, $ref_range, $department_id, $price);
 
     if ($stmt->execute()) {
         $test_id = $stmt->insert_id;
@@ -86,13 +81,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
 
         <div class="form-group">
-            <label>Test Category</label>
-            <select name="category_id" class="form-control" required>
-                <option value="">-- Select Category --</option>
-                <?php while ($c = $categories->fetch_assoc()): ?>
-                    <option value="<?= $c['category_id'] ?>">
-                        <?= htmlspecialchars($c['category_name']) ?> 
-                        (<?= htmlspecialchars($c['department_name'] ?? 'No Department') ?>)
+            <label>Department</label>
+            <select name="department_id" class="form-control" required>
+                <option value="">-- Select Department --</option>
+                <?php while ($d = $departments->fetch_assoc()): ?>
+                    <option value="<?= $d['department_id'] ?>">
+                        <?= htmlspecialchars($d['department_name']) ?>
                     </option>
                 <?php endwhile; ?>
             </select>
