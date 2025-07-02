@@ -13,16 +13,64 @@ $billing_status = null;
 
 $patients = $conn->query("SELECT DISTINCT p.patient_id, p.name FROM patients p JOIN test_assignments ta ON p.patient_id = ta.patient_id ORDER BY p.name");
 
+$billing_status = null;
+$rstatus = 'not_started';
+$gstatus = 'not_ready';
+
 if ($selected_billing_id) {
-    $stmt = $conn->prepare("SELECT status FROM billing WHERE billing_id = ?");
+    $stmt = $conn->prepare("SELECT status, rstatus, gstatus FROM billing WHERE billing_id = ?");
     $stmt->bind_param("i", $selected_billing_id);
     $stmt->execute();
-    $stmt->bind_result($billing_status);
+    $stmt->bind_result($billing_status, $rstatus, $gstatus);
     $stmt->fetch();
     $stmt->close();
 }
 
-if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $billing_status !== 'finished') {
+$progress_percent = 0;
+
+if ($selected_billing_id) {
+    $stmt = $conn->prepare("
+        SELECT 
+            COUNT(*) AS total_tests,
+            SUM(CASE 
+                WHEN tr.result_value IS NOT NULL AND TRIM(tr.result_value) != '' THEN 1 
+                ELSE 0 
+            END) AS filled_tests
+        FROM test_assignments ta
+        LEFT JOIN test_results tr ON ta.assignment_id = tr.assignment_id
+        WHERE ta.billing_id = ?
+    ");
+    $stmt->bind_param("i", $selected_billing_id);
+    $stmt->execute();
+    $stmt->bind_result($total_tests, $filled_tests);
+    $stmt->fetch();
+    $stmt->close();
+
+    if ($total_tests > 0) {
+        $progress_percent = round(($filled_tests / $total_tests) * 100);
+    }
+}
+
+
+
+
+if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results'])) {
+    // Step 1: Check if report is finalized
+    $statusStmt = $conn->prepare("SELECT gstatus FROM billing WHERE billing_id = ?");
+    $statusStmt->bind_param("i", $selected_billing_id);
+    $statusStmt->execute();
+    $statusRow = $statusStmt->get_result()->fetch_assoc();
+    $statusStmt->close();
+
+    if ($statusRow && $statusRow['gstatus'] === 'generated') {
+        echo "<script>
+            alert('❌ This report has been finalized and cannot be edited.');
+            window.location.href = 'enter_results.php?patient_id={$selected_patient_id}&billing_id={$selected_billing_id}';
+        </script>";
+        exit;
+    }
+
+    // Step 2: Loop through each assignment and save/update results
     foreach ($_POST['results'] as $assignment_id => $data) {
         $value = isset($data['result_value']) ? trim($data['result_value']) : '';
         $remarks = isset($data['remarks']) ? trim($data['remarks']) : '';
@@ -45,20 +93,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
         $is_pregnant = (int)$testData['is_pregnant'];
         $gest_weeks = $is_pregnant ? (int)$testData['gestational_weeks'] : null;
 
-        // Handle component-type results
+        // --- Handle Component-Based Results ---
         if (isset($data['components']) && is_array($data['components'])) {
             foreach ($data['components'] as $component_label => $comp_value) {
                 $comp_value = trim($comp_value);
                 $comp_eval = null;
 
-                // Fetch matching range for this component
                 $rangeStmt = $conn->prepare("
-            SELECT * FROM test_ranges
-            WHERE test_id = ? AND range_type = 'component' AND condition_label = ?
-              AND (gender = ? OR gender = 'Any')
-              AND (age_min IS NULL OR age_min <= ?)
-              AND (age_max IS NULL OR age_max >= ?)
-        ");
+                    SELECT * FROM test_ranges
+                    WHERE test_id = ? AND range_type = 'component' AND condition_label = ?
+                      AND (gender = ? OR gender = 'Any')
+                      AND (age_min IS NULL OR age_min <= ?)
+                      AND (age_max IS NULL OR age_max >= ?)
+                ");
                 $rangeStmt->bind_param("issii", $test_id, $component_label, $gender, $age, $age);
                 $rangeStmt->execute();
                 $rangeResult = $rangeStmt->get_result();
@@ -69,8 +116,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
                         if ($comp_value < $r['value_low']) $comp_eval = 'Low';
                         elseif ($comp_value > $r['value_high']) $comp_eval = 'High';
                         else $comp_eval = 'Normal';
-                    } else {
-                        $comp_eval = null;
                     }
                 }
 
@@ -96,9 +141,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
             }
         }
 
-
-
-
+        // --- Handle Main Result Value ---
         if (is_numeric($value)) {
             $rangeStmt = $conn->prepare("
                 SELECT *
@@ -133,6 +176,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
             }
         }
 
+        // --- Insert/Update Result Entry ---
         $checkStmt = $conn->prepare("SELECT result_id FROM test_results WHERE assignment_id = ?");
         $checkStmt->bind_param("i", $assignment_id);
         $checkStmt->execute();
@@ -153,6 +197,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
         $checkStmt->close();
     }
 
+    // Step 3: Update rstatus based on completion
     $check_all_stmt = $conn->prepare("
         SELECT COUNT(*) AS total_tests,
                SUM(CASE WHEN tr.result_value IS NOT NULL AND TRIM(tr.result_value) != '' THEN 1 ELSE 0 END) AS filled_tests
@@ -165,13 +210,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
     $counts = $check_all_stmt->get_result()->fetch_assoc();
     $check_all_stmt->close();
 
-    $new_status = ($counts['total_tests'] == $counts['filled_tests']) ? 'ready' : 'open';
+    $rstatus = 'not_started';
+    if ($counts['filled_tests'] > 0 && $counts['filled_tests'] < $counts['total_tests']) {
+        $rstatus = 'partial';
+    } elseif ($counts['filled_tests'] == $counts['total_tests']) {
+        $rstatus = 'complete';
+    }
 
-    $update_status_stmt = $conn->prepare("UPDATE billing SET status = ? WHERE billing_id = ?");
-    $update_status_stmt->bind_param("si", $new_status, $selected_billing_id);
+    $update_status_stmt = $conn->prepare("UPDATE billing SET rstatus = ? WHERE billing_id = ?");
+    $update_status_stmt->bind_param("si", $rstatus, $selected_billing_id);
     $update_status_stmt->execute();
     $update_status_stmt->close();
 
+    // Step 4: Show success message
     echo <<<JS
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script>
@@ -187,6 +238,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results']) && $bi
     JS;
     exit;
 }
+
 $visits = [];
 if ($selected_patient_id) {
     $v = $conn->prepare("SELECT billing_id, billing_date FROM billing WHERE patient_id = ? ORDER BY billing_date DESC");
@@ -277,6 +329,44 @@ if ($selected_patient_id && $selected_billing_id) {
                     </select>
                 <?php endif; ?>
             </form>
+
+            <?php
+            // Map badge colors
+            $r_badge = match ($rstatus) {
+                'complete'     => 'badge-success',
+                'partial'      => 'badge-warning',
+                'not_started'  => 'badge-secondary',
+                default        => 'badge-light'
+            };
+
+            $g_badge = match ($gstatus) {
+                'generated'    => 'badge-danger',
+                'ready'        => 'badge-info',
+                'not_ready'    => 'badge-secondary',
+                default        => 'badge-light'
+            };
+            ?>
+            <div class="mb-3">
+                <span class="badge <?= $r_badge ?>">🧪 Results: <?= ucfirst($rstatus) ?></span>
+                <span class="badge <?= $g_badge ?>">📄 Report: <?= ucfirst(str_replace('_', ' ', $gstatus)) ?></span>
+            </div>
+            <?php if ($selected_billing_id && $total_tests > 0): ?>
+    <div class="mb-4">
+        <label><strong>Result Entry Progress</strong></label>
+        <div class="progress" style="height: 25px;">
+            <div class="progress-bar <?= $progress_percent == 100 ? 'bg-success' : 'bg-info' ?>" 
+                 role="progressbar" 
+                 style="width: <?= $progress_percent ?>%;" 
+                 aria-valuenow="<?= $progress_percent ?>" 
+                 aria-valuemin="0" 
+                 aria-valuemax="100">
+                <?= $progress_percent ?>%
+            </div>
+        </div>
+    </div>
+<?php endif; ?>
+
+
 
             <?php if ($selected_billing_id && $selected_patient_id): ?>
                 <?php if ($billing_status === 'finished'): ?>
