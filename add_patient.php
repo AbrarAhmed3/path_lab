@@ -22,8 +22,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         exit();
     }
 
-    $check = $conn->prepare("SELECT patient_id FROM patients WHERE contact = ?");
-    $check->bind_param("s", $contact);
+    // ✅ Updated logic: check patient by contact + name
+    $check = $conn->prepare("SELECT patient_id FROM patients WHERE contact = ? AND name = ?");
+    $check->bind_param("ss", $contact, $name);
     $check->execute();
     $check->bind_result($existing_patient_id);
     $check->fetch();
@@ -61,6 +62,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         exit;
     }
 
+    // ✅ Proceed with new registration
     $stmt = $conn->prepare("INSERT INTO patients (name, age, gender, contact, address,  is_pregnant, gestational_weeks) VALUES (?, ?, ?, ?, ?, ?, ?)");
     $stmt->bind_param("sisssii", $name, $age, $gender, $contact, $address, $is_pregnant, $gestational_weeks);
 
@@ -90,6 +92,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         echo "Database Error: " . $stmt->error;
     }
 }
+
+
+
 ?>
 
 <!DOCTYPE html>
