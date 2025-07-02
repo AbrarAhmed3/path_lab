@@ -115,6 +115,8 @@ function formatRange($low, $high)
     <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
     <style>
         body {
             background-color: #f4f7fa;
@@ -370,6 +372,25 @@ function formatRange($low, $high)
                 <?php endif; ?>
             </form>
             <?php if ($patient && $billing_id): ?>
+                <?php
+// Fetch fstatus and gstatus for display
+$fstatus = $gstatus = null;
+$status_stmt = $conn->prepare("SELECT fstatus, gstatus FROM billing WHERE billing_id = ?");
+$status_stmt->bind_param("i", $billing_id);
+$status_stmt->execute();
+$status_stmt->bind_result($fstatus, $gstatus);
+$status_stmt->fetch();
+$status_stmt->close();
+?>
+
+<div class="mb-3">
+    <span class="badge badge-dark">📄 Report Status: <?= ucfirst($gstatus ?? 'Not Ready') ?></span>
+    <span class="badge badge-success">✅ Finalization: <?= ucfirst($fstatus ?? 'Not Finalized') ?></span>
+</div>
+<?php if ($gstatus === 'generated'): ?>
+    <button class="btn btn-danger ml-2" onclick="unlockReport()">🔓 Unlock Report</button>
+<?php endif; ?>
+
                 <button class="btn btn-info" onclick="downloadPDF()">⬇ Download PDF</button>
                 <button class="btn btn-primary ml-2" onclick="printReport()">🖨 Print</button>
             <?php endif; ?>
@@ -607,94 +628,100 @@ function formatRange($low, $high)
     </script>
 
 
+<script>
+    document.querySelectorAll(".barcode").forEach(svg => JsBarcode(svg).init());
 
+    function downloadPDF() {
+        const el = document.getElementById('print-area');
+        html2pdf().set({
+            margin: 0.5,
+            filename: 'Patient_Report_<?= $patient_id ?>_Visit_<?= $billing_id ?>.pdf',
+            image: { type: 'jpeg', quality: 1 },
+            html2canvas: { scale: 2, useCORS: true, logging: true },
+            jsPDF: { unit: 'px', format: [794, 1123], orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'], avoid: ['.custom-footer'] }
+        }).from(el).save().then(() => {
+            markReportAsFinished(<?= $billing_id ?>);
+        });
+    }
 
-    <script>
-        document.querySelectorAll(".barcode").forEach(svg => JsBarcode(svg).init());
+    function printReport() {
+        const el = document.getElementById('print-area');
+        html2pdf().set({
+            margin: 0,
+            filename: 'Patient_Report_<?= $patient_id ?>_Visit_<?= $billing_id ?>.pdf',
+            image: { type: 'jpeg', quality: 1 },
+            html2canvas: { scale: 2, useCORS: true, logging: true },
+            jsPDF: { unit: 'px', format: [794, 1123], orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'], avoid: ['.custom-footer'] }
+        }).from(el).toPdf().get('pdf').then(pdf => {
+            const blobURL = URL.createObjectURL(pdf.output('blob'));
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.src = blobURL;
+            document.body.appendChild(iframe);
+            iframe.onload = () => {
+                setTimeout(() => {
+                    iframe.contentWindow.print();
+                    markReportAsFinished(<?= $billing_id ?>);
+                }, 500);
+            };
+        });
+    }
 
-
-        function downloadPDF() {
-            const el = document.getElementById('print-area');
-            html2pdf().set({
-                margin: 0.5,
-                filename: 'Patient_Report_<?= $patient_id ?>_Visit_<?= $billing_id ?>.pdf',
-                image: {
-                    type: 'jpeg',
-                    quality: 1
-                },
-                html2canvas: {
-                    scale: 2,
-                    useCORS: true,
-                    logging: true
-                },
-                jsPDF: {
-                    unit: 'px',
-                    format: [794, 1123], // A4 size in pixels (96dpi)
-                    orientation: 'portrait'
-                },
-                pagebreak: {
-                    mode: ['css', 'legacy'],
-                    avoid: ['.custom-footer']
+    function markReportAsFinished(billingId) {
+        fetch('mark_report_finished.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: 'billing_id=' + encodeURIComponent(billingId)
+        })
+        .then(response => response.text())
+        .then(data => {
+            console.log('Status update:', data);
+        })
+        .catch(error => {
+            console.error('Status update failed:', error);
+        });
+    }
+// Function to unlock report for editing
+   function unlockReport() {
+    Swal.fire({
+        title: 'Unlock Report?',
+        text: "Do you want to unlock this finalized report for editing?",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Unlock',
+        cancelButtonText: 'Cancel',
+        reverseButtons: true
+    }).then((result) => {
+        if (result.isConfirmed) {
+            fetch('unlock_report_status.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: 'billing_id=' + encodeURIComponent(<?= $billing_id ?>)
+            })
+            .then(res => res.text())
+            .then(response => {
+                if (response.trim() === 'success') {
+                    Swal.fire({
+                        title: 'Unlocked!',
+                        text: 'Report is now editable.',
+                        icon: 'success',
+                        timer: 2000,
+                        showConfirmButton: false
+                    }).then(() => {
+                        window.location.reload();
+                    });
+                } else {
+                    Swal.fire('Error', 'Failed to unlock report.', 'error');
                 }
-            }).from(el).save().then(() => {
-    markReportAsFinished(<?= $billing_id ?>);
-});
+            })
+            .catch(() => {
+                Swal.fire('Error', 'Something went wrong. Try again.', 'error');
+            });
         }
-
-
-        function printReport() {
-            const el = document.getElementById('print-area');
-            html2pdf().set({
-                margin: 0,
-                filename: 'Patient_Report_<?= $patient_id ?>_Visit_<?= $billing_id ?>.pdf',
-                image: {
-                    type: 'jpeg',
-                    quality: 1
-                },
-                html2canvas: {
-                    scale: 2,
-                    useCORS: true,
-                    logging: true
-                },
-                jsPDF: {
-                    unit: 'px',
-                    format: [794, 1123], // A4 size in pixels (96dpi)
-                    orientation: 'portrait'
-                },
-                pagebreak: {
-                    mode: ['css', 'legacy'],
-                    avoid: ['.custom-footer']
-                }
-            }).from(el).toPdf().get('pdf').then(pdf => {
-                const blobURL = URL.createObjectURL(pdf.output('blob'));
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = blobURL;
-                document.body.appendChild(iframe);
-                iframe.onload = () => {
-    setTimeout(() => {
-        iframe.contentWindow.print();
-        markReportAsFinished(<?= $billing_id ?>);
-    }, 500);
-};
-
-        function markReportAsFinished(billingId) {
-    fetch('mark_report_finished.php', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: 'billing_id=' + encodeURIComponent(billingId)
-    })
-    .then(response => response.text())
-    .then(data => {
-        console.log('Status update:', data);
-    })
-    .catch(error => {
-        console.error('Status update failed:', error);
     });
 }
+</script>
 
-
-    </script>
     <?php include 'admin_footer.php'; ?>
