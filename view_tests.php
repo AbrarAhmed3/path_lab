@@ -7,22 +7,20 @@ if (!isset($_SESSION['admin_logged_in'])) {
 include 'admin_header.php';
 include 'db.php';
 
-// Fetch all tests
+// Fetch all tests directly with departments
 $tests = $conn->query("
     SELECT 
-        t.test_id, t.name AS test_name, t.unit, t.ref_range, t.price, 
-        c.category_id, c.category_name, d.department_id, d.department_name,
+        t.test_id, t.name AS test_name, t.unit, t.ref_range, t.price,
+        d.department_id, d.department_name,
         (SELECT COUNT(*) FROM test_ranges tr WHERE tr.test_id = t.test_id) AS has_ranges
     FROM tests t 
-    LEFT JOIN test_categories c ON t.category_id = c.category_id 
-    LEFT JOIN departments d ON c.department_id = d.department_id
+    LEFT JOIN departments d ON t.department_id = d.department_id
     WHERE t.deleted_at IS NULL 
     ORDER BY t.test_id DESC
 ");
 
-// For filters
+// For department filter
 $departments = $conn->query("SELECT * FROM departments ORDER BY department_name");
-$categories = $conn->query("SELECT * FROM test_categories ORDER BY category_name");
 ?>
 
 <!DOCTYPE html>
@@ -46,18 +44,11 @@ $categories = $conn->query("SELECT * FROM test_categories ORDER BY category_name
         <a href="add_test.php" class="btn btn-success mr-2">➕ Add New Test</a>
         <a href="restore_tests.php" class="btn btn-warning mr-3">🗑️ View Deleted Tests</a>
 
-        <!-- Filters -->
+        <!-- Filter by Department -->
         <select id="departmentFilter" class="form-control filter-select">
             <option value="">🔍 Filter by Department</option>
             <?php while ($d = $departments->fetch_assoc()): ?>
                 <option value="<?= htmlspecialchars($d['department_name']) ?>"><?= htmlspecialchars($d['department_name']) ?></option>
-            <?php endwhile; ?>
-        </select>
-
-        <select id="categoryFilter" class="form-control filter-select">
-            <option value="">🔍 Filter by Category</option>
-            <?php while ($c = $categories->fetch_assoc()): ?>
-                <option value="<?= htmlspecialchars($c['category_name']) ?>"><?= htmlspecialchars($c['category_name']) ?></option>
             <?php endwhile; ?>
         </select>
     </div>
@@ -70,7 +61,6 @@ $categories = $conn->query("SELECT * FROM test_categories ORDER BY category_name
                 <th>Unit</th>
                 <th>Ref. Range</th>
                 <th>Price (₹)</th>
-                <th>Category</th>
                 <th>Department</th>
                 <th>Ranges</th>
                 <th>Actions</th>
@@ -85,7 +75,6 @@ $categories = $conn->query("SELECT * FROM test_categories ORDER BY category_name
                     <td><?= htmlspecialchars($row['unit']) ?></td>
                     <td><?= htmlspecialchars($row['ref_range']) ?></td>
                     <td><?= number_format($row['price'], 2) ?></td>
-                    <td><?= htmlspecialchars($row['category_name']) ?></td>
                     <td><?= htmlspecialchars($row['department_name']) ?></td>
                     <td class="text-center">
                         <?php if ($row['has_ranges'] > 0): ?>
@@ -103,7 +92,7 @@ $categories = $conn->query("SELECT * FROM test_categories ORDER BY category_name
                 </tr>
             <?php endwhile; ?>
         <?php else: ?>
-            <tr><td colspan="9">No tests found.</td></tr>
+            <tr><td colspan="8">No tests found.</td></tr>
         <?php endif; ?>
         </tbody>
     </table>
@@ -124,12 +113,7 @@ $(document).ready(function () {
 
     // Filter by department
     $('#departmentFilter').on('change', function () {
-        table.column(6).search(this.value).draw();
-    });
-
-    // Filter by category
-    $('#categoryFilter').on('change', function () {
-        table.column(5).search(this.value).draw();
+        table.column(5).search(this.value).draw(); // department column index
     });
 });
 
