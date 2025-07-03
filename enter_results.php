@@ -30,16 +30,25 @@ $progress_percent = 0;
 
 if ($selected_billing_id) {
     $stmt = $conn->prepare("
-        SELECT 
-            COUNT(*) AS total_tests,
-            SUM(CASE 
-                WHEN tr.result_value IS NOT NULL AND TRIM(tr.result_value) != '' THEN 1 
-                ELSE 0 
-            END) AS filled_tests
-        FROM test_assignments ta
-        LEFT JOIN test_results tr ON ta.assignment_id = tr.assignment_id
-        WHERE ta.billing_id = ?
-    ");
+    SELECT
+      COUNT(*) AS total_tests,
+      SUM(
+        CASE
+          WHEN tr.result_value IS NOT NULL AND TRIM(tr.result_value) <> '' THEN 1
+          WHEN EXISTS (
+            SELECT 1
+            FROM test_result_components tc
+            WHERE tc.assignment_id = ta.assignment_id
+              AND TRIM(tc.value) <> ''
+          ) THEN 1
+          ELSE 0
+        END
+      ) AS filled_tests
+    FROM test_assignments ta
+    LEFT JOIN test_results tr ON ta.assignment_id = tr.assignment_id
+    WHERE ta.billing_id = ?
+");
+
     $stmt->bind_param("i", $selected_billing_id);
     $stmt->execute();
     $stmt->bind_result($total_tests, $filled_tests);
@@ -199,12 +208,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_results'])) {
 
     // Step 3: Update rstatus based on completion
     $check_all_stmt = $conn->prepare("
-        SELECT COUNT(*) AS total_tests,
-               SUM(CASE WHEN tr.result_value IS NOT NULL AND TRIM(tr.result_value) != '' THEN 1 ELSE 0 END) AS filled_tests
-        FROM test_assignments ta
-        LEFT JOIN test_results tr ON ta.assignment_id = tr.assignment_id
-        WHERE ta.billing_id = ?
-    ");
+    SELECT
+      COUNT(*) AS total_tests,
+      SUM(
+        CASE
+          WHEN tr.result_value IS NOT NULL AND TRIM(tr.result_value) <> '' THEN 1
+          WHEN EXISTS (
+            SELECT 1
+            FROM test_result_components tc
+            WHERE tc.assignment_id = ta.assignment_id
+              AND TRIM(tc.value) <> ''
+          ) THEN 1
+          ELSE 0
+        END
+      ) AS filled_tests
+    FROM test_assignments ta
+    LEFT JOIN test_results tr ON ta.assignment_id = tr.assignment_id
+    WHERE ta.billing_id = ?
+");
+
     $check_all_stmt->bind_param("i", $selected_billing_id);
     $check_all_stmt->execute();
     $counts = $check_all_stmt->get_result()->fetch_assoc();
@@ -351,20 +373,20 @@ if ($selected_patient_id && $selected_billing_id) {
                 <span class="badge <?= $g_badge ?>">📄 Report: <?= ucfirst(str_replace('_', ' ', $gstatus)) ?></span>
             </div>
             <?php if ($selected_billing_id && $total_tests > 0): ?>
-    <div class="mb-4">
-        <label><strong>Result Entry Progress</strong></label>
-        <div class="progress" style="height: 25px;">
-            <div class="progress-bar <?= $progress_percent == 100 ? 'bg-success' : 'bg-info' ?>" 
-                 role="progressbar" 
-                 style="width: <?= $progress_percent ?>%;" 
-                 aria-valuenow="<?= $progress_percent ?>" 
-                 aria-valuemin="0" 
-                 aria-valuemax="100">
-                <?= $progress_percent ?>%
-            </div>
-        </div>
-    </div>
-<?php endif; ?>
+                <div class="mb-4">
+                    <label><strong>Result Entry Progress</strong></label>
+                    <div class="progress" style="height: 25px;">
+                        <div class="progress-bar <?= $progress_percent == 100 ? 'bg-success' : 'bg-info' ?>"
+                            role="progressbar"
+                            style="width: <?= $progress_percent ?>%;"
+                            aria-valuenow="<?= $progress_percent ?>"
+                            aria-valuemin="0"
+                            aria-valuemax="100">
+                            <?= $progress_percent ?>%
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
 
 
 
@@ -444,8 +466,15 @@ if ($selected_patient_id && $selected_billing_id) {
                                             }
                                         }
                                     } else {
-                                        $ref_display = 'N/A';
+                                        // fall back to the first 'simple' or 'label' range
+                                        $r = $rangeResult->fetch_assoc();
+                                        if ($r['range_type'] === 'label') {
+                                            $ref_display = "{$r['value_low']} - {$r['value_high']} {$r['unit']} ({$r['condition_label']} - {$r['flag_label']})";
+                                        } else {
+                                            $ref_display = "{$r['value_low']} - {$r['value_high']} {$r['unit']}";
+                                        }
                                     }
+
                                     $rangeStmt->close();
                                 ?>
                                     <tr>

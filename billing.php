@@ -519,7 +519,7 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                         <strong>Sex / Age:</strong> <?= ucfirst($patient['gender']) ?> / <?= $patient['age'] ?>
                     </td>
                     <td style="text-align:right; vertical-align:top;">
-                        <strong>Bill ID:</strong> <?= $active_billing['billing_id'] ?><br>
+                        <strong>Bill ID:</strong> <?= 'HDC_' . $active_billing['billing_id'] ?><br>
                         <strong>Billing Date:</strong> <?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?>
                     </td>
                 </tr>
@@ -665,7 +665,7 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
   <table style="width:100%; margin-bottom:12px; font-size:12px;">
     <tr>
       <td><strong>Name:</strong> <?= htmlspecialchars($patient['name']) ?></td>
-      <td style="text-align:right;"><strong>Bill ID:</strong> <?= $active_billing['billing_id'] ?></td>
+      <td style="text-align:right;"><strong>Bill ID:</strong> <?= 'HDC_' . $active_billing['billing_id'] ?></td>
     </tr>
     <tr>
       <td><strong>Age/Sex:</strong> <?= htmlspecialchars($patient['age'].' / '.ucfirst($patient['gender'])) ?></td>

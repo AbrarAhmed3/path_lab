@@ -18,7 +18,7 @@ $pending_reports = $conn->query("
     SELECT b.billing_id, b.patient_id, p.name, p.contact 
     FROM billing b 
     JOIN patients p ON b.patient_id = p.patient_id 
-    WHERE b.status = 'ready' 
+    WHERE b.fstatus != 'finalized' AND b.rstatus = 'complete'
     LIMIT 100
 ");
 
@@ -44,7 +44,7 @@ $pending_tests = $conn->query("
 
 
 
-$pending_reports_count = $conn->query("SELECT COUNT(*) FROM billing WHERE status = 'ready'")->fetch_row()[0];
+$pending_reports_count = $conn->query("SELECT COUNT(*) FROM billing WHERE fstatus = 'finalized' and rstatus = 'complete'")->fetch_row()[0];
 
 $pending_bills_count = $conn->query("
     SELECT COUNT(*) FROM billing WHERE balance_amount != 0
