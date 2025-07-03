@@ -14,6 +14,26 @@ $patients = $conn->query("SELECT patient_id, name FROM patients");
 // Fetch doctors
 $doctors = $conn->query("SELECT doctor_id, name FROM doctors");
 
+
+$patient_id = intval($_GET['patient_id'] ?? 0);
+$billing_id = intval($_GET['billing_id'] ?? 0);
+
+// Only validate if both are selected
+if ($patient_id > 0 && $billing_id > 0) {
+    $check_sql = "SELECT COUNT(*) AS cnt FROM billing WHERE billing_id = ? AND patient_id = ?";
+    $stmt = $conn->prepare($check_sql);
+    $stmt->bind_param("ii", $billing_id, $patient_id);
+    $stmt->execute();
+    $stmt->bind_result($count);
+    $stmt->fetch();
+    $stmt->close();
+
+    if ($count === 0) {
+        header("Location: assign_test.php?patient_id=$patient_id");
+        exit();
+    }
+}
+
 // Group tests by category
 $testGroups = [];
 $rs = $conn->query("SELECT t.test_id, t.name AS test_name, c.category_name FROM tests t LEFT JOIN test_categories c ON t.category_id = c.category_id ORDER BY c.category_name, t.name");
@@ -21,8 +41,6 @@ while ($r = $rs->fetch_assoc()) {
     $testGroups[$r['category_name'] ?? 'Uncategorized'][] = $r;
 }
 
-$patient_id = $_GET['patient_id'] ?? null;
-$billing_id = $_GET['billing_id'] ?? null;
 $assigned_tests = [];
 $current_billing = null;
 $bstatus = null;
@@ -63,6 +81,31 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     if ($action === 'assign_tests') {
+
+        $individual_tests = $_POST['tests_individual'] ?? [];
+        $profile_tests    = $_POST['tests_profile'] ?? [];
+
+        $all_tests = [];
+
+        foreach ($individual_tests as $test_id) {
+            $all_tests[] = ['test_id' => $test_id, 'profile' => 0];
+        }
+        foreach ($profile_tests as $test_id) {
+            $all_tests[] = ['test_id' => $test_id, 'profile' => 1];
+        }
+
+        // Remove already assigned test_ids
+        $already_assigned_ids = array_keys($assigned_tests);
+        $filtered_tests = array_filter($all_tests, fn($t) => !in_array($t['test_id'], $already_assigned_ids));
+
+        foreach ($filtered_tests as $test) {
+            $stmt = $conn->prepare("INSERT INTO test_assignments (patient_id, billing_id, test_id, assigned_via_profile) VALUES (?, ?, ?, ?)");
+            $stmt->bind_param("iiii", $patient_id, $billing_id, $test['test_id'], $test['profile']);
+            $stmt->execute();
+        }
+
+
+
         // Only allow assignment if billing status is still pending
         $check = $conn->prepare("SELECT bstatus FROM billing WHERE billing_id = ?");
         $check->bind_param("i", $billing_id);
@@ -76,11 +119,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         }
 
 
-        foreach ($selected_tests as $test_id) {
-            $stmt = $conn->prepare("INSERT INTO test_assignments (patient_id, billing_id, test_id) VALUES (?, ?, ?)");
-            $stmt->bind_param("iii", $patient_id, $billing_id, $test_id);
-            $stmt->execute();
-        }
+
 
         // Update referred doctor
         $stmt = $conn->prepare("UPDATE billing SET referred_by = ? WHERE billing_id = ?");
@@ -216,6 +255,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         hr {
             margin: 1.5rem 0;
         }
+
+        .form-check-label.badge {
+            display: inline-block;
+            margin: 4px 6px 4px 0;
+            font-size: 0.95rem;
+            border-radius: 20px;
+        }
     </style>
 </head>
 
@@ -255,6 +301,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                                         'paid' => '💳',
                                         default => '❓'
                                     };
+
 
                                 ?>
                                     <option value="<?= $v['billing_id'] ?>" <?= ($billing_id == $v['billing_id']) ? 'selected' : '' ?>>
@@ -321,8 +368,26 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             </div>
 
                             <div class="form-group">
+                                <label>Select Test Profiles (Categories)</label>
+                                <select id="category_select" class="form-control js-select-category" multiple>
+                                    <?php
+                                    $categories = $conn->query("SELECT * FROM test_categories");
+                                    while ($cat = $categories->fetch_assoc()) {
+                                        echo "<option value='{$cat['category_id']}'>{$cat['category_name']}</option>";
+                                    }
+                                    ?>
+                                </select>
+                            </div>
+                            <div id="category_test_list" class="mb-4">
+                                <!-- AJAX-loaded profile tests will appear here -->
+                            </div>
+
+
+
+
+                            <div class="form-group">
                                 <label>Add More Tests</label>
-                                <select name="tests[]" class="form-control js-select-tests" multiple required>
+                                <select name="tests_individual[]" class="form-control js-select-tests" multiple>
                                     <?php foreach ($testGroups as $category => $tests): ?>
                                         <optgroup label="<?= htmlspecialchars($category) ?>">
                                             <?php foreach ($tests as $test): ?>
@@ -390,6 +455,76 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             });
         });
     </script>
+
+    <script>
+        $(document).ready(function() {
+            $('#category_select').select2({
+                placeholder: "Select profiles/categories"
+            });
+
+            $('.js-select-tests').select2({
+                placeholder: "Select individual tests",
+                width: '100%'
+            });
+
+            $('#patient_id').on('change', function() {
+                const patientId = $(this).val();
+
+                // Clear and reload billing options
+                $('#billing_id').html('<option value="">Select Bill</option>');
+
+                if (patientId) {
+                    $.ajax({
+                        url: 'fetch_billing_ids.php',
+                        type: 'POST',
+                        data: {
+                            patient_id: patientId
+                        },
+                        success: function(data) {
+                            $('#billing_id').html(data);
+                        }
+                    });
+                }
+
+                // Optional: Clear any previously loaded test lists
+                $('#category_test_list').html('');
+                $('#individual_test_list').html('');
+            });
+
+
+            $('#category_select').on('change', function() {
+                let selectedCategories = $(this).val();
+                $.ajax({
+                    url: 'fetch_tests_by_category_ids.php',
+                    method: 'POST',
+                    data: {
+                        category_ids: selectedCategories
+                    },
+                    success: function(response) {
+                        $('#category_test_list').html(response.html);
+
+                        const hiddenTests = response.test_ids.map(String);
+
+                        $('.js-select-tests option').each(function() {
+                            if (hiddenTests.includes($(this).val())) {
+                                $(this).prop('disabled', true).hide();
+                            } else {
+                                $(this).prop('disabled', false).show();
+                            }
+                        });
+
+                        $('.js-select-tests').select2(); // refresh
+
+                        if ($('.js-select-tests option:visible').length === 0) {
+                            $('#category_test_list').append("<div class='alert alert-warning mt-3'>All tests in the selected categories are already assigned or unavailable.</div>");
+                        }
+                    }
+                });
+            });
+
+        });
+    </script>
+
 
     <?php if (isset($_GET['assigned']) && $_GET['assigned'] === 'success'): ?>
         <script>
