@@ -79,6 +79,12 @@ if ($billing_id) {
 
 // Handle form submission
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
+
+    $category_ids   = $_POST['category_ids']   ?? [];
+$individual     = $_POST['tests_individual'] ?? [];
+$profile_tests  = $_POST['tests_profile']  ?? [];
+
+
     $patient_id = $_POST['patient_id'];
     $billing_id = $_POST['billing_id'] ?? null;
     $selected_tests = $_POST['tests'] ?? [];
@@ -111,10 +117,55 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         $filtered_tests = array_filter($all_tests, fn($t) => !in_array($t['test_id'], $already_assigned_ids));
 
         foreach ($filtered_tests as $test) {
-            $stmt = $conn->prepare("INSERT INTO test_assignments (patient_id, billing_id, test_id, assigned_via_profile) VALUES (?, ?, ?, ?)");
-            $stmt->bind_param("iiii", $patient_id, $billing_id, $test['test_id'], $test['profile']);
-            $stmt->execute();
+    if ($test['profile'] == 1) {
+        // figure out which selected category this test belongs to
+        $assignedCat = null;
+        foreach ($category_ids as $cat) {
+            $chk = $conn->prepare(
+              "SELECT 1 FROM category_tests 
+                 WHERE category_id = ? AND test_id = ?"
+            );
+            $chk->bind_param("ii", $cat, $test['test_id']);
+            $chk->execute();
+            $chk->store_result();
+            if ($chk->num_rows) {
+                $assignedCat = $cat;
+                $chk->close();
+                break;
+            }
+            $chk->close();
         }
+
+        $stmt = $conn->prepare(
+          "INSERT INTO test_assignments 
+             (patient_id,billing_id,test_id,assigned_via_profile,category_id) 
+           VALUES (?,?,?,?,?)"
+        );
+        $stmt->bind_param("iiiii",
+          $patient_id,
+          $billing_id,
+          $test['test_id'],
+          $test['profile'],
+          $assignedCat
+        );
+    } else {
+        // individual tests still go in without a category
+        $stmt = $conn->prepare(
+          "INSERT INTO test_assignments 
+             (patient_id,billing_id,test_id,assigned_via_profile) 
+           VALUES (?,?,?,?)"
+        );
+        $stmt->bind_param("iiii",
+          $patient_id,
+          $billing_id,
+          $test['test_id'],
+          $test['profile']
+        );
+    }
+    $stmt->execute();
+    $stmt->close();
+}
+
 
 
 
@@ -381,7 +432,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
                             <div class="form-group">
                                 <label>Select Test Profiles (Categories)</label>
-                                <select id="category_select" class="form-control js-select-category" multiple>
+                                <select name="category_ids[]" id="category_select" class="form-control js-select-category" multiple>
+
                                     <?php
                                     $categories = $conn->query("SELECT * FROM test_categories");
                                     while ($cat = $categories->fetch_assoc()) {
