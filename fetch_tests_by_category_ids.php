@@ -5,8 +5,13 @@ $category_ids = $_POST['category_ids'] ?? [];
 $response = ['html' => '', 'test_ids' => []];
 
 if (!empty($category_ids)) {
-    $in = implode(',', array_map('intval', $category_ids));
-    $sql = "SELECT test_id, name FROM tests WHERE category_id IN ($in)";
+    $in = implode(',', array_map('intval', $category_ids)); // sanitize input
+$sql = "
+    SELECT t.test_id, t.name
+    FROM category_tests ct
+    JOIN tests t ON ct.test_id = t.test_id
+    WHERE ct.category_id IN ($in)
+";
     $result = $conn->query($sql);
 
     ob_start();

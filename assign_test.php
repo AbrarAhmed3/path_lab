@@ -34,12 +34,24 @@ if ($patient_id > 0 && $billing_id > 0) {
     }
 }
 
-// Group tests by category
+// Group tests by category (including unmapped/uncategorized)
 $testGroups = [];
-$rs = $conn->query("SELECT t.test_id, t.name AS test_name, c.category_name FROM tests t LEFT JOIN test_categories c ON t.category_id = c.category_id ORDER BY c.category_name, t.name");
+
+$rs = $conn->query("
+    SELECT 
+        t.test_id, 
+        t.name AS test_name, 
+        COALESCE(c.category_name, 'Uncategorized') AS category_name
+    FROM tests t
+    LEFT JOIN category_tests ct ON t.test_id = ct.test_id
+    LEFT JOIN test_categories c ON ct.category_id = c.category_id
+    ORDER BY category_name, test_name
+");
+
 while ($r = $rs->fetch_assoc()) {
-    $testGroups[$r['category_name'] ?? 'Uncategorized'][] = $r;
+    $testGroups[$r['category_name']][] = $r;
 }
+
 
 $assigned_tests = [];
 $current_billing = null;
