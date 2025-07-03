@@ -30,7 +30,16 @@ if ($patient_id) {
         $active_billing = $stmt->get_result()->fetch_assoc();
         $stmt->close();
     } else {
-        $stmt = $conn->prepare("SELECT * FROM billing WHERE patient_id = ? AND status = 'draft' ORDER BY billing_id DESC LIMIT 1");
+        // use bstatus, not status
+        $stmt = $conn->prepare("
+  SELECT * 
+    FROM billing 
+   WHERE patient_id = ? 
+     AND bstatus = 'pending' 
+ORDER BY billing_id DESC 
+   LIMIT 1
+");
+
         $stmt->bind_param("i", $patient_id);
         $stmt->execute();
         $active_billing = $stmt->get_result()->fetch_assoc();
@@ -41,57 +50,60 @@ if ($patient_id) {
     if ($active_billing) {
 
         if ($active_billing && $billing_id) {
-    // 1. Recalculate subtotal from test_assignments
-    $recalculated_total = 0;
-    $stmt = $conn->prepare("SELECT SUM(t.price) as total FROM test_assignments ta JOIN tests t ON ta.test_id = t.test_id WHERE ta.billing_id = ?");
-    $stmt->bind_param("i", $billing_id);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $recalculated_total = $row['total'] ?? 0;
-    $stmt->close();
+            // 1. Recalculate subtotal from test_assignments
+            $recalculated_total = 0;
+            $stmt = $conn->prepare("SELECT SUM(t.price) as total FROM test_assignments ta JOIN tests t ON ta.test_id = t.test_id WHERE ta.billing_id = ?");
+            $stmt->bind_param("i", $billing_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            $row = $result->fetch_assoc();
+            $recalculated_total = $row['total'] ?? 0;
+            $stmt->close();
 
-    // 2. Recalculate balance
-    $discount = floatval($active_billing['discount']);
-    $paid = floatval($active_billing['paid_amount']);
-    $net = max($recalculated_total - $discount, 0);
-    $balance = max($net - $paid, 0);
-    $bstatus = ($balance <= 0) ? 'paid' : 'assigned';
+            // 2. Recalculate balance
+            $discount = floatval($active_billing['discount']);
+            $paid = floatval($active_billing['paid_amount']);
+            $net = max($recalculated_total - $discount, 0);
+            $balance = max($net - $paid, 0);
+            $bstatus = ($balance <= 0) ? 'paid' : 'assigned';
 
-    // 3. Update DB if total/balance differs from stored
-    if (
-        abs($recalculated_total - floatval($active_billing['total_amount'])) > 0.01 ||
-        abs($balance - floatval($active_billing['balance_amount'])) > 0.01 ||
-        $bstatus !== $active_billing['bstatus']
-    ) {
-        $stmt = $conn->prepare("UPDATE billing SET total_amount=?, balance_amount=?, bstatus=? WHERE billing_id=?");
-        $stmt->bind_param("ddsi", $recalculated_total, $balance, $bstatus, $billing_id);
-        $stmt->execute();
-        $stmt->close();
+            // 3. Update DB if total/balance differs from stored
+            if (
+                abs($recalculated_total - floatval($active_billing['total_amount'])) > 0.01 ||
+                abs($balance - floatval($active_billing['balance_amount'])) > 0.01 ||
+                $bstatus !== $active_billing['bstatus']
+            ) {
+                $stmt = $conn->prepare("UPDATE billing SET total_amount=?, balance_amount=?, bstatus=? WHERE billing_id=?");
+                $stmt->bind_param("ddsi", $recalculated_total, $balance, $bstatus, $billing_id);
+                $stmt->execute();
+                $stmt->close();
 
-        // Refresh active_billing with latest
-        $stmt = $conn->prepare("SELECT * FROM billing WHERE billing_id = ?");
-        $stmt->bind_param("i", $billing_id);
-        $stmt->execute();
-        $active_billing = $stmt->get_result()->fetch_assoc();
-        $stmt->close();
-    }
+                // Refresh active_billing with latest
+                $stmt = $conn->prepare("SELECT * FROM billing WHERE billing_id = ?");
+                $stmt->bind_param("i", $billing_id);
+                $stmt->execute();
+                $active_billing = $stmt->get_result()->fetch_assoc();
+                $stmt->close();
+            }
 
-    // 4. Update total_amount to match this calculated one
-    $total_amount = $recalculated_total;
-}
+            // 4. Update total_amount to match this calculated one
+            $total_amount = $recalculated_total;
+        }
 
         // For Lab Copy: individual test names + category
         $tests_array = [];
         $stmt = $conn->prepare("
-    SELECT t.name AS test_name, t.price, 
-           COALESCE(c.category_name, 'Uncategorized') AS category_name
-    FROM test_assignments ta
-    JOIN tests t ON ta.test_id = t.test_id
-    LEFT JOIN test_categories c ON t.category_id = c.category_id
-    WHERE ta.billing_id = ?
-    ORDER BY c.category_name ASC
+  SELECT 
+    t.name       AS test_name,
+    t.price      AS price,
+    COALESCE(tc.category_name,'Uncategorized') AS category_name
+  FROM test_assignments ta
+  JOIN tests t ON ta.test_id = t.test_id
+  LEFT JOIN test_categories tc ON ta.category_id = tc.category_id
+  WHERE ta.billing_id = ?
+  ORDER BY tc.category_name, t.name
 ");
+
         $stmt->bind_param("i", $billing_id);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -143,7 +155,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->close();
 
     if (isset($_POST['generate_bill'])) {
-        $discount = floatval($_POST['discount']);
+        $mode     = $_POST['discount_type'] ?? 'amount';
+        $entered  = floatval($_POST['discount']);
+        $subtotal = $recalculated_total;
+
+        if ($mode === 'percent') {
+            // clamp to 0–100%
+            $p = min(max($entered, 0), 100);
+            $discount = ($p / 100) * $subtotal;
+        } else {
+            $discount = max($entered, 0);
+        }
+
         $paid = floatval($_POST['paid_amount']);
         $net = max($recalculated_total - $discount, 0);
         $balance = max($net - $paid, 0);
@@ -180,29 +203,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (isset($_POST['pay_due'])) {
-    $payment = floatval($_POST['due_amount']);
+        $payment = floatval($_POST['due_amount']);
 
-    // 🔁 Re-fetch billing fresh from DB
-    $stmt = $conn->prepare("SELECT discount, paid_amount FROM billing WHERE billing_id = ?");
-    $stmt->bind_param("i", $billing_id);
-    $stmt->execute();
-    $billingData = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+        // 🔁 Re-fetch billing fresh from DB
+        $stmt = $conn->prepare("SELECT discount, paid_amount FROM billing WHERE billing_id = ?");
+        $stmt->bind_param("i", $billing_id);
+        $stmt->execute();
+        $billingData = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
 
-    $new_paid = $billingData['paid_amount'] + $payment;
-    $net = max($recalculated_total - $billingData['discount'], 0);
-    $balance = max($net - $new_paid, 0);
-    $bstatus = ($balance <= 0) ? 'paid' : 'assigned';
+        $new_paid = $billingData['paid_amount'] + $payment;
+        $net = max($recalculated_total - $billingData['discount'], 0);
+        $balance = max($net - $new_paid, 0);
+        $bstatus = ($balance <= 0) ? 'paid' : 'assigned';
 
-    $stmt = $conn->prepare("UPDATE billing SET total_amount=?, paid_amount=?, balance_amount=?, bstatus=? WHERE billing_id=?");
-    $stmt->bind_param("dddsi", $recalculated_total, $new_paid, $balance, $bstatus, $billing_id);
+        $stmt = $conn->prepare("UPDATE billing SET total_amount=?, paid_amount=?, balance_amount=?, bstatus=? WHERE billing_id=?");
+        $stmt->bind_param("dddsi", $recalculated_total, $new_paid, $balance, $bstatus, $billing_id);
 
-    if ($stmt->execute()) {
-        header("Location: billing.php?patient_id=$patient_id&billing_id=$billing_id&toast=1");
-        exit();
+        if ($stmt->execute()) {
+            header("Location: billing.php?patient_id=$patient_id&billing_id=$billing_id&toast=1");
+            exit();
+        }
     }
-}
-
 }
 
 
@@ -261,29 +283,42 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                 </form>
 
                 <?php if ($patient): ?>
-                    <div class="form-group mb-3">
-                        <label><strong>📜 All Bills</strong></label>
-                        <select onchange="window.location.href=this.value" class="form-control">
-                            <option value="">-- Select Bill --</option>
-                            <?php
-                            $bills = $conn->query("SELECT billing_id, billing_date, status FROM billing WHERE patient_id = $patient_id ORDER BY billing_date DESC");
-                            while ($b = $bills->fetch_assoc()):
-                                $badge = match ($b['bstatus'] ?? 'pending') {
-                                    'pending' => '🟡',
-                                    'assigned' => '🧪',
-                                    'paid' => '✅',
-                                    default => '❓'
-                                };
+  <div class="form-group mb-3">
+    <label><strong>📜 All Bills</strong></label>
+    <select onchange="window.location.href=this.value" class="form-control">
+      <option value="">-- Select Bill --</option>
+      <?php
+        // pull in bstatus instead of the unused status field
+        $bills = $conn->query("
+          SELECT billing_id,
+                 billing_date,
+                 bstatus
+            FROM billing
+           WHERE patient_id = $patient_id
+        ORDER BY billing_date DESC
+        ");
 
+        while ($b = $bills->fetch_assoc()):
+          // pick an emoji per bstatus
+          $icon = match ($b['bstatus']) {
+            'pending'  => '🟡',
+            'assigned' => '🧪',
+            'paid'     => '✅',
+            'printed'  => '🖨️',
+            default    => '❓',
+          };
+      ?>
+        <option
+          value="billing.php?patient_id=<?= $patient_id ?>&billing_id=<?= $b['billing_id'] ?>"
+          <?= ($billing_id == $b['billing_id']) ? 'selected' : '' ?>
+        >
+          <?= $icon ?> Bill #<?= $b['billing_id'] ?> (<?= date('d-m-Y', strtotime($b['billing_date'])) ?>)
+        </option>
+      <?php endwhile; ?>
+    </select>
+  </div>
+<?php endif; ?>
 
-                            ?>
-                                <option value="billing.php?patient_id=<?= $patient_id ?>&billing_id=<?= $b['billing_id'] ?>" <?= ($billing_id == $b['billing_id']) ? 'selected' : '' ?>>
-                                    <?= $badge ?> Bill #<?= $b['billing_id'] ?> (<?= date('d-m-Y', strtotime($b['billing_date'])) ?>)
-                                </option>
-                            <?php endwhile; ?>
-                        </select>
-                    </div>
-                <?php endif; ?>
 
                 <?php if ($active_billing): ?>
                     <div class="invoice-summary p-3 bg-white border rounded" id="print-area">
@@ -318,62 +353,135 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php foreach ($category_totals as $row): ?>
-                                        <tr>
-                                            <td><?= htmlspecialchars($row['category_name']) ?></td>
-                                            <td class="text-right">₹ <?= number_format($row['total_price'], 2) ?></td>
-                                        </tr>
+                                    <?php
+                                    // first, group them in PHP
+
+                                    // group them in PHP
+                                    $grouped = [];
+                                    foreach ($tests_array as $t) {
+                                        $grouped[$t['category_name']][] = $t;
+                                    }
+                                    ?>
+
+                                    <?php foreach ($grouped as $category => $tests): ?>
+
+                                        <?php if ($category !== 'Uncategorized'): ?>
+                                            <?php $catTotal = array_sum(array_column($tests, 'price')); ?>
+                                            <tr class="bg-light font-weight-bold">
+                                                <td><?= htmlspecialchars($category) ?></td>
+                                                <td class="text-right">₹ <?= number_format($catTotal, 2) ?></td>
+                                            </tr>
+                                        <?php endif; ?>
+
+                                        <?php foreach ($tests as $t): ?>
+                                            <tr>
+                                                <td style="padding-left: <?= $category === 'Uncategorized' ? '0' : '20px' ?>">
+                                                    <?= $category === 'Uncategorized' ? '' : '— ' ?>
+                                                    <?= htmlspecialchars($t['test_name']) ?>
+                                                </td>
+                                                <td class="text-right">₹ <?= number_format($t['price'], 2) ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+
                                     <?php endforeach; ?>
-
-
 
                                     <tr class="bg-light">
                                         <td><strong>Subtotal</strong></td>
-                                        <td class="text-right">₹ <?= number_format($total_amount, 2) ?></td>
+                                        <td class="text-right" id="subtotal_display">₹ <?= number_format($total_amount, 2) ?></td>
                                     </tr>
+
+                                    <?php
+                                    // calculate discount percentage
+                                    $discAmt = $active_billing['discount'];
+                                    $discPct = $total_amount > 0
+                                        ? round(($discAmt / $total_amount) * 100, 1)
+                                        : 0;
+                                    ?>
                                     <tr class="table-warning">
                                         <td><strong>Discount</strong></td>
-                                        <td class="text-right">₹ <?= number_format($active_billing['discount'], 2) ?></td>
+                                        <td id="discount_display" style="
+      padding:4px 0;
+      color:red;
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+    ">
+                                            <!-- discounted amount -->
+                                            <span>– ₹ <?= number_format($active_billing['discount'], 2) ?></span>
+                                            <!-- percentage tag, pushed to the right of the amount -->
+                                            <small style="margin-left:8px; font-size:85%;">(<?= $discPct ?>%)</small>
+                                        </td>
                                     </tr>
+
                                     <tr class="table-info font-weight-bold">
                                         <td>Net Payable</td>
-                                        <td class="text-right">₹ <?= number_format($total_amount - $active_billing['discount'], 2) ?></td>
+                                        <td id="net_display" class="text-right">₹ <?= number_format($total_amount - $active_billing['discount'], 2) ?></td>
                                     </tr>
                                     <tr>
                                         <td>Paid</td>
-                                        <td class="text-right">₹ <?= number_format($active_billing['paid_amount'], 2) ?></td>
+                                        <td id="paid_display" class="text-right">₹ <?= number_format($active_billing['paid_amount'], 2) ?></td>
                                     </tr>
                                     <tr>
                                         <td>Due</td>
-                                        <td class="text-right text-danger">
+                                        <td id="due_display" class="text-right text-danger">
                                             <?= $active_billing['balance_amount'] <= 0 ? '<span class="text-success">All Paid</span>' : '₹ ' . number_format($active_billing['balance_amount'], 2) ?>
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
 
-                            <?php if ($active_billing['status'] == 'draft' && $active_billing['paid_amount'] <= 0): ?>
+                            <?php if ($active_billing['bstatus'] !== 'paid' && $active_billing['paid_amount'] <= 0): ?>
                                 <form method="POST" class="mb-2">
                                     <input type="hidden" name="generate_bill" value="1">
-                                    <div class="form-group">
-                                        <label>Discount (₹)</label>
-                                        <input type="number" name="discount" class="form-control" step="0.01" value="<?= $active_billing['discount'] ?>">
+
+                                    <div class="form-row">
+                                        <!-- Discount Type -->
+                                        <div class="form-group col-md-4">
+                                            <label>Discount Type</label>
+                                            <select name="discount_type" id="discount_type" class="form-control">
+                                                <option value="amount" selected>Amount (₹)</option>
+                                                <option value="percent">Percentage (%)</option>
+                                            </select>
+                                        </div>
+
+                                        <!-- Discount Value -->
+                                        <div class="form-group col-md-4">
+                                            <label id="discount_label">Discount (₹)</label>
+                                            <input
+                                                type="number"
+                                                name="discount"
+                                                id="discount"
+                                                class="form-control"
+                                                step="0.01"
+                                                value="<?= number_format($active_billing['discount'], 2) ?>">
+                                        </div>
+
+                                        <!-- Paid Amount -->
+                                        <div class="form-group col-md-4">
+                                            <label>Paid Amount (₹)</label>
+                                            <input
+                                                type="number"
+                                                name="paid_amount"
+                                                id="paid_amount"
+                                                class="form-control"
+                                                step="0.01"
+                                                required>
+                                        </div>
                                     </div>
-                                    <div class="form-group">
-                                        <label>Paid Amount (₹)</label>
-                                        <input type="number" name="paid_amount" class="form-control" step="0.01" required>
-                                    </div>
+
                                     <button class="btn btn-success">💰 Finalize Bill</button>
                                 </form>
                             <?php endif; ?>
 
-                            <?php if ($active_billing['balance_amount'] > 0): ?>
-                                <form method="POST" class="form-inline">
-                                    <input type="hidden" name="pay_due" value="1">
-                                    <input type="number" name="due_amount" class="form-control mr-2" step="0.01" required placeholder="Pay Due">
-                                    <button class="btn btn-warning">💳 Pay Due</button>
-                                </form>
-                            <?php endif; ?>
+
+                            <?php if ($active_billing['paid_amount'] > 0 && $active_billing['balance_amount'] > 0): ?>
+  <form method="POST" class="form-inline">
+    <input type="hidden" name="pay_due" value="1">
+    <input type="number" name="due_amount" class="form-control mr-2" step="0.01" required placeholder="Pay Due">
+    <button class="btn btn-warning">💳 Pay Due</button>
+  </form>
+<?php endif; ?>
+
 
                             <div class="mt-3">
                                 <button onclick="printInvoice()" class="btn btn-info mr-2">🖨️ Print Invoice</button>
@@ -418,47 +526,94 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
             </table>
 
             <!-- Test Charges Table -->
-            <table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:20px;">
+            <?php
+            // Build two structures: one for real categories, one for uncategorized tests
+            $grouped     = [];
+            $uncategorized = [];
+            $subtotal    = 0;
+
+            foreach ($tests_array as $t) {
+                $subtotal += $t['price'];
+
+                if ($t['category_name'] !== 'Uncategorized') {
+                    $grouped[$t['category_name']] =
+                        ($grouped[$t['category_name']] ?? 0) + $t['price'];
+                } else {
+                    $uncategorized[] = $t;
+                }
+            }
+            ?>
+
+            <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
                 <thead>
                     <tr style="background:#f4f4f4; border:1px solid #ccc;">
-                        <th style="text-align:left; padding:6px; border:1px solid #ccc;">Test Category</th>
+                        <th style="text-align:left; padding:6px; border:1px solid #ccc;">Test</th>
                         <th style="text-align:right; padding:6px; border:1px solid #ccc;">Amount (₹)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php
-                    $grouped = [];
-                    $subtotal = 0;
-                    foreach ($tests_array as $row) {
-                        $cat = $row['category_name'];
-                        if (!isset($grouped[$cat])) $grouped[$cat] = 0;
-                        $grouped[$cat] += $row['price'];
-                        $subtotal += $row['price'];
-                    }
-                    foreach ($grouped as $category => $amount):
-                    ?>
+                    <!-- 1) One row per real category -->
+                    <?php foreach ($grouped as $category => $amount): ?>
                         <tr>
-                            <td style="padding:6px; border:1px solid #ccc;"><?= htmlspecialchars($category) ?></td>
-                            <td style="padding:6px; text-align:right; border:1px solid #ccc;">₹ <?= number_format($amount, 2) ?></td>
+                            <td style="padding:6px; border:1px solid #ccc; font-weight:bold;">
+                                <?= htmlspecialchars($category) ?>
+                            </td>
+                            <td style="padding:6px; text-align:right; border:1px solid #ccc;">
+                                ₹ <?= number_format($amount, 2) ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+
+                    <!-- 2) Then each uncategorized test on its own -->
+                    <?php foreach ($uncategorized as $t): ?>
+                        <tr>
+                            <td style="padding:6px; border:1px solid #ccc; padding-left:20px;">
+                                <?= htmlspecialchars($t['test_name']) ?>
+                            </td>
+                            <td style="padding:6px; text-align:right; border:1px solid #ccc;">
+                                ₹ <?= number_format($t['price'], 2) ?>
+                            </td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>
             </table>
 
-            <!-- Billing Summary Box -->
+            <!-- Billing Summary Box (uses the same $subtotal) -->
             <div style="width:280px; float:right; border:1px solid #ccc; padding:10px; font-size:13px;">
                 <table style="width:100%; border-collapse:collapse;">
                     <tr>
                         <td style="padding:4px 0;">Subtotal</td>
                         <td style="text-align:right;">₹ <?= number_format($subtotal, 2) ?></td>
                     </tr>
-                    <tr>
-                        <td style="padding:4px 0;">Discount</td>
-                        <td style="text-align:right;">₹ <?= number_format($active_billing['discount'], 2) ?></td>
+                    <?php
+                    // calculate discount percentage
+                    $discAmt = $active_billing['discount'];
+                    $discPct = $total_amount > 0
+                        ? round(($discAmt / $total_amount) * 100, 1)
+                        : 0;
+                    ?>
+                    <tr class="table-warning">
+                        <td><strong>Discount</strong></td>
+                        <td style="
+      padding:4px 0;
+      color:red;
+      display:flex;
+      justify-content:flex-end;
+      align-items:center;
+    ">
+                            <!-- discounted amount -->
+                            <span>– ₹ <?= number_format($active_billing['discount'], 2) ?></span>
+                            <!-- percentage tag, pushed to the right of the amount -->
+                            <small style="margin-left:8px; font-size:85%;">(<?= $discPct ?>%)</small>
+                        </td>
                     </tr>
+
+
                     <tr style="border-top:1px dashed #ccc;">
                         <td style="padding:6px 0;"><strong>Net Payable</strong></td>
-                        <td style="text-align:right;"><strong>₹ <?= number_format($subtotal - $active_billing['discount'], 2) ?></strong></td>
+                        <td style="text-align:right;"><strong>
+                                ₹ <?= number_format($subtotal - $active_billing['discount'], 2) ?>
+                            </strong></td>
                     </tr>
                     <tr>
                         <td style="padding:4px 0;">Paid</td>
@@ -472,134 +627,196 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                     </tr>
                 </table>
             </div>
-
             <div style="clear:both;"></div>
 
-
-            <hr style="margin-top:30px;">
-            <p style="text-align:center; font-size:11px; margin:0;">Thank you for choosing <strong><?= htmlspecialchars($lab_settings['lab_name']) ?></strong>. We value your trust.</p>
+            <!-- Footer -->
+      
         </div>
+                        <!-- Existing thank-you line -->
+    <p style="text-align:center; font-size:11px; margin:0;">
+      Thank you for choosing <strong><?= htmlspecialchars($lab_settings['lab_name']) ?></strong>. We value your trust.
+    </p>
+
+    <!-- 👇 Your new footer note 👇 -->
+    <div style="text-align:center; font-size:10px; margin-top:8px; color:#555;">
+      <em>Please keep this invoice for your records. For any questions, call <?= htmlspecialchars($lab_settings['phone']) ?>.</em>
+    </div>
     </div>
 
 
+<!-- Lab Copy -->
+<div id="lab-copy" style="display:none; font-size:12px; font-family:'Segoe UI', Tahoma, sans-serif;">
 
+  <!-- Header -->
+  <div style="text-align:center; margin-bottom:10px;">
+    <h2 style="margin:0;"><?= strtoupper($lab_settings['lab_name']) ?></h2>
+    <div style="font-size:10px; line-height:1.2;">
+      <?= htmlspecialchars($lab_settings['address_line1'] . ' ' . $lab_settings['address_line2']) ?>,
+      <?= htmlspecialchars($lab_settings['city']) ?>, <?= htmlspecialchars($lab_settings['state']) ?>
+      - <?= htmlspecialchars($lab_settings['pincode']) ?><br>
+      Phone: <?= htmlspecialchars($lab_settings['phone']) ?> |
+      Email: <?= htmlspecialchars($lab_settings['email']) ?>
+    </div>
+    <hr style="margin:8px 0; border-top:1px solid #000;">
+    <div style="font-weight:bold; margin-bottom:8px;">🧪 LAB COPY</div>
+  </div>
 
+  <!-- Patient + Bill Info -->
+  <table style="width:100%; margin-bottom:12px; font-size:12px;">
+    <tr>
+      <td><strong>Name:</strong> <?= htmlspecialchars($patient['name']) ?></td>
+      <td style="text-align:right;"><strong>Bill ID:</strong> <?= $active_billing['billing_id'] ?></td>
+    </tr>
+    <tr>
+      <td><strong>Age/Sex:</strong> <?= htmlspecialchars($patient['age'].' / '.ucfirst($patient['gender'])) ?></td>
+      <td style="text-align:right;"><strong>Date:</strong> <?= date('d-m-Y',strtotime($active_billing['billing_date'])) ?></td>
+    </tr>
+  </table>
 
-    <!-- Lab Copy -->
-    <div id="lab-copy" style="display:none; font-size:12px;">
+  <?php
+    // group tests by category
+    $grouped = [];
+    foreach ($tests_array as $t) {
+      $grouped[$t['category_name']][] = $t['test_name'];
+    }
+  ?>
 
-        <!-- Header -->
-        <div style="text-align:center; font-size:14px;">
-            <h2 style="margin:0; font-weight:bold;"><?= strtoupper($lab_settings['lab_name']) ?></h2>
-            <div style="font-size:12px; margin: 2px 0;">
-                <?= $lab_settings['address_line1'] . ' ' . $lab_settings['address_line2'] ?>,
-                <?= $lab_settings['city'] ?>, <?= $lab_settings['state'] ?> - <?= $lab_settings['pincode'] ?><br>
-                Phone: <?= $lab_settings['phone'] ?> | Email: <?= $lab_settings['email'] ?>
-            </div>
-            <hr style="border-top: 2px solid #000; margin: 5px 0;">
-            <div style="font-weight:bold; margin: 5px 0;">🧪 LAB COPY</div>
-        </div>
+  <?php foreach ($grouped as $category => $tests): ?>
+    <!-- Category Heading -->
+    <h5 style="margin:12px 0 4px;"><?= htmlspecialchars($category) ?></h5>
 
-        <!-- Patient Info & QR Code -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0 5px; height: 1in;">
-            <!-- Left Info -->
-            <div style="width: 40%;">
-                <div><strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?></div>
-                <div><strong>Age:</strong> <?= htmlspecialchars($patient['age']) ?></div>
-                <div><strong>Sex:</strong> <?= ucfirst($patient['gender']) ?></div>
-            </div>
-
-            <!-- Center QR -->
-            <!-- <div style="width: 20%; text-align: center;">
-            <?php
-            $qrData = "Patient: {$patient['name']} | ID: {$patient['patient_id']} | Bill: {$active_billing['billing_id']} | Date: " . date('d-m-Y', strtotime($active_billing['billing_date']));
-            $qrURL = "https://api.qrserver.com/v1/create-qr-code/?data=" . urlencode($qrData) . "&size=100x100";
-            ?>
-            <img src="<?= $qrURL ?>" alt="QR Code" style="width:80px; height:80px;">
-
-        </div> -->
-
-            <!-- Right Info -->
-            <div style="width: 40%;">
-                <div><strong>Patient ID:</strong> <?= $patient['patient_id'] ?></div>
-                <div><strong>Bill ID:</strong> <?= $active_billing['billing_id'] ?></div>
-                <div><strong>Billing Date:</strong> <?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?></div>
-            </div>
-        </div>
-
-        <hr style="margin: 5px 0;">
-
-        <!-- Grouped Tests -->
-        <?php
-        $grouped = [];
-        foreach ($tests_array as $row) {
-            $grouped[$row['category_name']][] = $row['test_name'];
-        }
-        ?>
-
-        <?php foreach ($grouped as $cat => $tests): ?>
-            <h5 style="margin-top:10px; margin-bottom:5px;"><?= htmlspecialchars($cat) ?></h5>
-            <table border="1" cellspacing="0" cellpadding="6" width="100%" style="margin-bottom:10px; font-size:12px;">
-                <thead>
-                    <tr>
-                        <th style="width:50%; text-align:left;">Test Name</th>
-                        <th style="width:50%; text-align:left;">Result</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($tests as $test_name): ?>
-                        <tr>
-                            <td><?= htmlspecialchars($test_name) ?></td>
-                            <td style="height:40px;"></td>
-                        </tr>
-                    <?php endforeach; ?>
-                </tbody>
-            </table>
-            <p style="font-size:12px; margin: 16px 0 20px 0;"><strong>Machine Used:</strong> ________________________________</p>
-
+    <!-- Test / Result Table -->
+    <table 
+      style="
+        width:100%;
+        border-collapse:collapse;
+        margin-bottom:16px;
+        font-size:12px;
+      "
+      border="1"
+      cellpadding="4"
+      cellspacing="0"
+    >
+      <thead>
+        <tr style="background:#f0f0f0;">
+          <th style="width:70%; text-align:left;">Test Name</th>
+          <th style="width:30%; text-align:left;">Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        <?php foreach ($tests as $name): ?>
+          <tr>
+            <td><?= htmlspecialchars($name) ?></td>
+            <td style="height:32px;"></td>
+          </tr>
         <?php endforeach; ?>
+      </tbody>
+    </table>
 
-        <p style="text-align:right; margin-top:20px;"><em>Authorized Signature: ___________________</em></p>
+    <!-- Machine Used Line -->
+    <div style="font-size:12px; margin-bottom:8px;">
+      <strong>Machine Used:</strong> _____________________________
     </div>
+  <?php endforeach; ?>
+
+  <!-- Signature -->
+  <div style="text-align:right; margin-top:20px; font-size:12px;">
+    <em>Authorized Signature: _____________________________</em>
+  </div>
+</div>
 
 
 
 
+            <script>
+                document.getElementById('discount_type')
+                    .addEventListener('change', function() {
+                        const lbl = document.getElementById('discount_label');
+                        const inp = document.getElementById('discount');
+                        if (this.value === 'percent') {
+                            lbl.textContent = 'Discount (%)';
+                            inp.setAttribute('max', 100);
+                        } else {
+                            lbl.textContent = 'Discount (₹)';
+                            inp.removeAttribute('max');
+                        }
+                    });
+            </script>
+<!-- Discount Calculation -->
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  const subtotal   = parseFloat('<?= $total_amount ?>');
+  const dtEl       = document.getElementById('discount_type');
+  const discEl     = document.getElementById('discount');
+  const paidEl     = document.getElementById('paid_amount');
+  const subDisp    = document.getElementById('subtotal_display');
+  const discDisp   = document.getElementById('discount_display');
+  const netDisp    = document.getElementById('net_display');
+  const paidDisp   = document.getElementById('paid_display');
+  const dueDisp    = document.getElementById('due_display');
 
-    <script>
-        function printInvoice() {
-            const content = document.getElementById('invoice-print').innerHTML;
-            const win = window.open('', '_blank');
-            win.document.write('<html><head><title>Invoice</title></head><body>' + content + '</body></html>');
-            win.document.close();
-            win.focus();
-            win.print();
-            win.close();
-        }
+  function fmt(x){ return '₹ '+ x.toFixed(2) }
+  function update() {
+    let entered = parseFloat(discEl.value)||0;
+    let discAmt = dtEl.value==='percent'
+      ? Math.min(Math.max(entered,0),100)/100 * subtotal
+      : Math.min(Math.max(entered,0),subtotal);
+    let paidAmt = Math.min(Math.max(parseFloat(paidEl.value)||0,0),subtotal-discAmt);
+    let net     = subtotal - discAmt;
+    let due     = net - paidAmt;
 
-        function printLabCopy() {
-            const content = document.getElementById('lab-copy').innerHTML;
-            const win = window.open('', '_blank');
-            win.document.write('<html><head><title>Lab Copy</title></head><body>' + content + '</body></html>');
-            win.document.close();
-            win.focus();
-            win.print();
-            win.close();
-        }
-    </script>
+    subDisp.textContent  = fmt(subtotal);
+    discDisp.textContent = '– '+ fmt(discAmt)
+                         + (dtEl.value==='percent'
+                              ? ' ('+((discAmt/subtotal*100)||0).toFixed(1)+'%)'
+                              : '');
+    netDisp.textContent  = fmt(net);
+    paidDisp.textContent = fmt(paidAmt);
+    dueDisp.textContent  = due<=0 ? 'All Paid' : fmt(due);
+  }
 
-    <?php if (isset($_GET['toast']) && $_GET['toast'] == '1'): ?>
-        <script>
-            Swal.fire({
-                icon: 'success',
-                toast: true,
-                title: 'Billing updated!',
-                position: 'top-end',
-                timer: 3000,
-                showConfirmButton: false
-            });
-        </script>
-    <?php endif; ?>
+  dtEl.addEventListener('change', update);
+  discEl.addEventListener('input',  update);
+  paidEl.addEventListener('input',  update);
+  update();
+});
+</script>
+
+
+            <script>
+                function printInvoice() {
+                    const content = document.getElementById('invoice-print').innerHTML;
+                    const win = window.open('', '_blank');
+                    win.document.write('<html><head><title>Invoice</title></head><body>' + content + '</body></html>');
+                    win.document.close();
+                    win.focus();
+                    win.print();
+                    win.close();
+                }
+
+                function printLabCopy() {
+                    const content = document.getElementById('lab-copy').innerHTML;
+                    const win = window.open('', '_blank');
+                    win.document.write('<html><head><title>Lab Copy</title></head><body>' + content + '</body></html>');
+                    win.document.close();
+                    win.focus();
+                    win.print();
+                    win.close();
+                }
+            </script>
+
+            <?php if (isset($_GET['toast']) && $_GET['toast'] == '1'): ?>
+                <script>
+                    Swal.fire({
+                        icon: 'success',
+                        toast: true,
+                        title: 'Billing updated!',
+                        position: 'top-end',
+                        timer: 3000,
+                        showConfirmButton: false
+                    });
+                </script>
+            <?php endif; ?>
 </body>
 
 </html>
