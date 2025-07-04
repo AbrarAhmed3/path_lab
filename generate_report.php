@@ -19,29 +19,66 @@ $results_by_department = [];
 function render_reference_range_html($test_id, $patient, $value = null, $component_label = null)
 {
     global $conn;
-    // 1) Build the SQL
-    $sql = "
-      SELECT *
+
+    // 0) blank for text‐only
+    if ($value !== null && !is_numeric($value)) {
+        return '';
+    }
+
+    // 1) if pregnant, try a direct pregnancy query first
+    if (
+        $component_label === null
+        && !empty($patient['gestational_weeks'])
+        && strtolower($patient['gender']) === 'female'
+    ) {
+        $pq = $conn->prepare("
+      SELECT condition_label, value_low, value_high
       FROM test_ranges
-      WHERE test_id = ?
-        AND (gender = ? OR gender = 'Any')
-        AND (age_min IS NULL OR age_min <= ?)
-        AND (age_max IS NULL OR age_max >= ?)
-        AND (
-          (gestation_min IS NULL AND gestation_max IS NULL)
-          OR (? BETWEEN gestation_min AND gestation_max)
-        )
-    ";
+      WHERE test_id       = ?
+        AND range_type    = 'pregnancy'
+        AND ? BETWEEN gestation_min AND gestation_max
+      ORDER BY gestation_min DESC
+      LIMIT 1
+    ");
+        $pq->bind_param(
+            'ii',
+            $test_id,
+            $patient['gestational_weeks']
+        );
+        $pq->execute();
+        $preg = $pq->get_result()->fetch_assoc();
+        $pq->close();
+
+        if ($preg) {
+            $low  = $preg['value_low'];
+            $high = $preg['value_high'];
+            $cond = htmlspecialchars($preg['condition_label']);
+            return "{$cond}: {$low} - {$high}";
+        }
+    }
+
+    // 2) otherwise fall back to your general SQL
+    $sql = "
+    SELECT *
+    FROM test_ranges
+    WHERE test_id = ?
+      AND (gender = ? OR gender = 'Any')
+      AND (age_min  IS NULL OR age_min  <= ?)
+      AND (age_max  IS NULL OR age_max  >= ?)
+      AND (
+        (gestation_min IS NULL AND gestation_max IS NULL)
+        OR (? BETWEEN gestation_min AND gestation_max)
+      )
+  ";
     if ($component_label !== null) {
         $sql .= " AND range_type = 'component' AND condition_label = ? ";
     }
     $sql .= "
-      ORDER BY FIELD(range_type,'label','component','age_gender','gender','age','simple'),
-               gestation_min DESC,
-               age_min       DESC
-    ";
+    ORDER BY FIELD(range_type,'label','component','age_gender','gender','age','simple'),
+             gestation_min DESC,
+             age_min       DESC
+  ";
 
-    // 2) Prepare, bind & execute
     $stmt = $conn->prepare($sql);
     if ($component_label !== null) {
         $stmt->bind_param(
@@ -64,69 +101,47 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
         );
     }
     $stmt->execute();
-
-    // 3) **Fetch all rows into $ranges** before looping
     $ranges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
 
-    // 4) Iterate and build your HTML
-    $html = '';
+    // 3) render the first matching “label/age_gender/gender/age/simple/component”
     foreach ($ranges as $r) {
-        $low   = $r['value_low'];
-        $high  = $r['value_high'];
-        $unit  = htmlspecialchars($r['unit']);
-        $type  = $r['range_type'];
-        $cond  = htmlspecialchars($r['condition_label'] ?? '');
-        $flag  = htmlspecialchars($r['flag_label']     ?? '');
+        $low  = $r['value_low'];
+        $high = $r['value_high'];
+        $type = $r['range_type'];
+        $cond = htmlspecialchars($r['condition_label'] ?? '');
 
-        // component‐only
+        // component test
         if ($component_label !== null && $type === 'component') {
-            if ($low === null && $high === null)       $html = '-';
-            elseif ($low === null)                     $html = "&lt; {$high}";
-            elseif ($high === null)                    $html = "&gt; {$low}";
-            elseif ($low == $high)                     $html = "{$low}";
-            else                                       $html = "{$low} - {$high}";
-            $html .= "";
-            break;
+            if ($low === null && $high === null)       return '-';
+            if ($low === null)                         return "&lt; {$high}";
+            if ($high === null)                        return "&gt; {$low}";
+            if ($low == $high)                         return "{$low}";
+            return "{$low} - {$high}";
         }
 
-        // standalone test (labels first)
-        if ($component_label === null && in_array($type, ['label','age_gender','gender','age','simple'])) {
+        // simple/label/gender/age/etc.
+        if (
+            $component_label === null
+            && in_array($type, ['label', 'age_gender', 'gender', 'age', 'simple'], true)
+        ) {
             if ($type === 'label') {
-                $rangeText = "{$low}-{$high}";
-                $html = "{$cond}: {$rangeText}";
-                // if ($flag) $html .= " ({$flag})";
+                return "{$cond}: {$low} - {$high}";
             } else {
-                if ($low === null && $high === null)       $html = '-';
-                elseif ($low === null)                     $html = "&lt; {$high}";
-                elseif ($high === null)                    $html = "&gt; {$low}";
-                elseif ($low == $high)                     $html = "{$low}";
-                else                                       $html = "{$low} - {$high}";
-                $html .= "";
+                if ($low === null && $high === null)       return '-';
+                if ($low === null)                         return "&lt; {$high}";
+                if ($high === null)                        return "&gt; {$low}";
+                if ($low == $high)                         return "{$low}";
+                return "{$low} - {$high}";
             }
-            break;
-        }
-
-        // **YOUR NEW BLOCK**: gender+phase + label + age_gender + simple
-        if ($component_label === null && in_array($type, ['label','age_gender','gender','age','simple'])) {
-            if ($type === 'label') {
-                $rangeText = "{$low}-{$high}";
-                $html = "{$cond}: {$rangeText}";
-                // if ($flag) $html .= " ({$flag})";
-            } else {
-                if ($low === null && $high === null)       $html = '-';
-                elseif ($low === null)                     $html = "&lt; {$high}";
-                elseif ($high === null)                    $html = "&gt; {$low}";
-                elseif ($low == $high)                     $html = "{$low}";
-                else                                       $html = "{$low} - {$high}";
-                $html .= "";
-            }
-            break;
         }
     }
 
-    return $html ?: 'N/A';
+    // 4) nothing matched → blank
+    return '';
 }
+
+
 
 
 
@@ -160,16 +175,45 @@ if ($billing_id) {
 
     // Prepared statement for report generated date
     // Pull the date we actually finalized the report
-$stmt = $conn->prepare("
+    $stmt = $conn->prepare("
     SELECT finalized_on
     FROM billing
     WHERE billing_id = ?
 ");
-$stmt->bind_param("i", $billing_id);
-$stmt->execute();
-$report_generated_on = $stmt->get_result()->fetch_assoc()['finalized_on'] ?? null;
-$stmt->close();
+    $stmt->bind_param("i", $billing_id);
+    $stmt->execute();
+    $report_generated_on = $stmt->get_result()->fetch_assoc()['finalized_on'] ?? null;
+    $stmt->close();
 
+
+    // Fetch category mapping for test_ids
+
+    $all_tests_flat = [];
+    foreach ($results_by_department as $tests) {
+        foreach ($tests as $t) {
+            $all_tests_flat[] = $t;
+        }
+    }
+
+    $category_map = [];
+
+    if (!empty($all_tests_flat)) {
+        $test_ids = array_column($all_tests_flat, 'test_id');
+        $test_ids_str = implode(',', array_map('intval', $test_ids));
+
+        if (!empty($test_ids_str)) {
+            $category_sql = "
+            SELECT ct.test_id, tc.category_name
+            FROM category_tests ct
+            JOIN test_categories tc ON ct.category_id = tc.category_id
+            WHERE ct.test_id IN ($test_ids_str)
+        ";
+            $category_result = $conn->query($category_sql);
+            while ($row = $category_result->fetch_assoc()) {
+                $category_map[$row['test_id']] = $row['category_name'];
+            }
+        }
+    }
 }
 
 $report_delivery = date("Y-m-d");
@@ -194,28 +238,43 @@ if ($patient_id && $billing_id) {
     $stmt2->close();
 
     // Get tests and results by department
+    // Get tests and results by department, including range_type
+    // Fetch all assigned tests + their single “General” range for this patient & bill
+    // Fetch all assigned tests + their single “General” range for this patient & bill
     $stmt3 = $conn->prepare("
-        SELECT 
-            d.department_name, t.test_id, t.name AS test_name, t.unit, t.method,
-            tr.result_value, ta.assignment_id
-        FROM test_results tr
-        JOIN test_assignments ta ON tr.assignment_id = ta.assignment_id
-        JOIN tests t ON ta.test_id = t.test_id
-        LEFT JOIN test_categories c ON t.category_id = c.category_id
-        LEFT JOIN departments d ON c.department_id = d.department_id
-        WHERE ta.patient_id = ? AND ta.billing_id = ?
-        ORDER BY d.department_name, t.name
-    ");
+    SELECT
+      ta.assignment_id,
+      t.test_id,
+      t.name              AS test_name,         -- use `name` not `test_name`
+      tr.result_value,
+      t.unit,
+      t.method,
+      tgr.range_type,
+      tgr.value_low,
+      tgr.value_high,
+      ta.assigned_via_profile,
+      d.department_name
+    FROM test_assignments AS ta
+    JOIN tests                AS t   ON ta.test_id        = t.test_id
+    LEFT JOIN test_results    AS tr  ON tr.assignment_id   = ta.assignment_id
+    LEFT JOIN test_ranges     AS tgr ON tgr.test_id        = t.test_id
+                                 AND tgr.condition_label = 'General'
+    LEFT JOIN departments     AS d   ON t.department_id    = d.department_id
+    WHERE ta.patient_id = ?
+      AND ta.billing_id = ?
+    ORDER BY d.department_name, t.name          -- order by the real column
+");
     $stmt3->bind_param("ii", $patient_id, $billing_id);
     $stmt3->execute();
     $res3 = $stmt3->get_result();
+
     while ($row = $res3->fetch_assoc()) {
-        $dept = $row['department_name'] ?? 'General';
-        $results_by_department[$dept][] = $row;
+        $results_by_department[$row['department_name']][] = $row;
     }
+
+
     $stmt3->close();
 }
-
 
 
 
@@ -502,24 +561,24 @@ function formatRange($low, $high)
                 $status_stmt = $conn->prepare("SELECT fstatus, gstatus, referred_by FROM billing WHERE billing_id = ?");
                 $status_stmt->bind_param("i", $billing_id);
                 $status_stmt->execute();
-                $status_stmt->bind_result($fstatus, $gstatus,$referred_by_id);
+                $status_stmt->bind_result($fstatus, $gstatus, $referred_by_id);
                 $status_stmt->fetch();
                 $status_stmt->close();
-                
+
 
                 // Lookup the referring doctor’s name
-$referrerName = 'N/A';
-if (! empty($referred_by_id)) {
-  $d = $conn->prepare("SELECT name FROM doctors WHERE doctor_id = ?");
-  $d->bind_param("i", $referred_by_id);
-  $d->execute();
-  $dname = $d->get_result()->fetch_assoc()['name'] ?? null;
-  $d->close();
-  if ($dname) {
-    $referrerName = htmlspecialchars($dname);
-  }
-}
-?>
+                $referrerName = 'N/A';
+                if (! empty($referred_by_id)) {
+                    $d = $conn->prepare("SELECT name FROM doctors WHERE doctor_id = ?");
+                    $d->bind_param("i", $referred_by_id);
+                    $d->execute();
+                    $dname = $d->get_result()->fetch_assoc()['name'] ?? null;
+                    $d->close();
+                    if ($dname) {
+                        $referrerName = htmlspecialchars($dname);
+                    }
+                }
+                ?>
 
                 <div class="mb-3">
                     <span class="badge badge-dark">📄 Report Status: <?= ucfirst($gstatus ?? 'Not Ready') ?></span>
@@ -572,13 +631,13 @@ if (! empty($referred_by_id)) {
 
                                 <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
                                     <div><strong>Booking On:</strong> <?= date('d-m-Y', strtotime($booking_on)) ?></div>
-                                    
+
                                     <div><strong>Generated On:</strong>
-  <?= $report_generated_on 
-        ? date('d-m-Y', strtotime($report_generated_on))
-        : '' 
-     ?>
-</div>
+                                        <?= $report_generated_on
+                                            ? date('d-m-Y', strtotime($report_generated_on))
+                                            : ''
+                                        ?>
+                                    </div>
 
 
 
@@ -602,22 +661,38 @@ if (! empty($referred_by_id)) {
                                     <tbody>
                                         <?php
                                         $current_category = null;
-                                        
+
                                         foreach ($test_group as $t):
                                             $icon = '';
                                             $ref_display = 'N/A';
                                             $val = $t['result_value'];
                                             $method = $t['method'] ? "<span class='method-note'>Method: " . htmlspecialchars($t['method']) . "</span>" : '';
+                                            $unit_display = is_numeric($val) ? $t['unit'] : '';
+
+                                            // Unit: only show if numeric
+                                            $ref_display  = $ref_display; // whatever you computed above
 
                                             // Fetch category name
-                                            $categoryStmt = $conn->prepare("SELECT category_name FROM test_categories WHERE category_id = (SELECT category_id FROM tests WHERE test_id = ?)");
-                                            $categoryStmt->bind_param("i", $t['test_id']);
-                                            $categoryStmt->execute();
-                                            $catRes = $categoryStmt->get_result();
-                                            $category_name = $catRes->fetch_assoc()['category_name'] ?? 'General';
-                                            $categoryStmt->close();
+                                            $category_name = null;
+                                            if (!empty($t['assigned_via_profile']) && $t['assigned_via_profile'] == 1) {
+                                                $stmtCat = $conn->prepare("
+        SELECT tc.category_name
+        FROM category_tests ct
+        JOIN test_categories tc ON ct.category_id = tc.category_id
+        WHERE ct.test_id = ?
+        LIMIT 1
+    ");
+                                                $stmtCat->bind_param("i", $t['test_id']);
+                                                $stmtCat->execute();
+                                                $resCat = $stmtCat->get_result();
+                                                $category_name = $resCat->fetch_assoc()['category_name'] ?? null;
+                                                $stmtCat->close();
+                                            }
 
-                                            if ($current_category !== $category_name):
+                                            // Override for Text-type ranges:
+
+
+                                            if ($category_name && $current_category !== $category_name):
                                                 $current_category = $category_name;
                                         ?>
                                                 <tr>
@@ -626,12 +701,14 @@ if (! empty($referred_by_id)) {
                                             <?php endif;
 
 
+
+
                                             // Fetch any sub‐tests/components for this assignment
                                             $compStmt = $conn->prepare("
-    SELECT component_label, `value`, evaluation_label
-    FROM test_result_components
-    WHERE assignment_id = ?
-");
+                                             SELECT component_label, `value`, evaluation_label
+                                             FROM test_result_components
+                                              WHERE assignment_id = ?
+                                            ");
                                             $compStmt->bind_param("i", $t['assignment_id']);
                                             $compStmt->execute();
                                             $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -640,10 +717,10 @@ if (! empty($referred_by_id)) {
                                             if (count($components) > 0) {
                                                 // 3a) Panel heading row
                                                 echo "<tr class='panel-row'>
-            <td colspan='5'><strong>"
+                                                     <td colspan='5'><strong>"
                                                     . htmlspecialchars($t['test_name'])
                                                     . "</strong></td>
-          </tr>";
+                                                        </tr>";
 
                                                 // 3b) Each component row
                                                 foreach ($components as $c) {
@@ -658,12 +735,12 @@ if (! empty($referred_by_id)) {
                                                         $val .= " ({$c['evaluation_label']})";
                                                     }
                                                     echo "<tr>
-                <td>&nbsp;&nbsp;&nbsp;– " . htmlspecialchars($c['component_label']) . "</td>
-                <td>:</td>
-                <td>{$val}</td>
-                <td>" . htmlspecialchars($t['unit']) . "</td>
-                <td>{$ref_display}</td>
-              </tr>";
+                                                        <td style=\"padding-left:1.5rem;\">" . htmlspecialchars($c['component_label']) . "</td>
+                                                        <td>:</td>
+                                                        <td>{$val}</td>
+                                                                                                <td>" . htmlspecialchars($t['unit']) . "</td>
+                                                        <td>{$ref_display}</td>
+                                                    </tr>";
                                                 }
 
                                                 // Skip the rest of this loop and move to the next test
@@ -675,21 +752,21 @@ if (! empty($referred_by_id)) {
                                             $icon        = '';
                                             // 1) Fetch *all* matching ranges, label rows first
                                             $stmt = $conn->prepare("
-    SELECT range_type, condition_label,
-           value_low, value_high, unit, flag_label
-    FROM test_ranges
-    WHERE test_id = ?
-      AND (gender = ? OR gender = 'Any')
-      AND (age_min IS NULL OR age_min <= ?)
-      AND (age_max IS NULL OR age_max >= ?)
-      AND (
-          (gestation_min IS NULL AND gestation_max IS NULL)
-          OR (? BETWEEN gestation_min AND gestation_max)
-      )
-    ORDER BY FIELD(range_type,'label','age_gender','gender','age','simple'),
-             gestation_min DESC,
-             age_min       DESC
-  ");
+                                            SELECT range_type, condition_label,
+                                                 value_low, value_high, unit, flag_label
+                                            FROM test_ranges
+                                         WHERE test_id = ?
+                                             AND (gender = ? OR gender = 'Any')
+                                            AND (age_min IS NULL OR age_min <= ?)
+                                             AND (age_max IS NULL OR age_max >= ?)
+                                             AND (
+                                                 (gestation_min IS NULL AND gestation_max IS NULL)
+                                                 OR (? BETWEEN gestation_min AND gestation_max)
+                                            )
+                                            ORDER BY FIELD(range_type,'label','age_gender','gender','age','simple'),
+                                                    gestation_min DESC,
+                                                    age_min       DESC
+                                        ");
                                             $stmt->bind_param(
                                                 "isiii",
                                                 $t['test_id'],
@@ -748,22 +825,25 @@ if (! empty($referred_by_id)) {
                                             ?>
 
                                             <?php
-    // simple (standalone) test
-    $display_val = htmlspecialchars($t['result_value']);
-    $icon        = '';
-    $ref_display = render_reference_range_html(
-        $t['test_id'],
-        $patient,
-        $t['result_value']
-    );
-?>
-<tr>
-    <td style="width:30%;font-weight:500;"><?= htmlspecialchars($t['test_name']) ?><?= $method ?></td>
-    <td style="width:2%;font-weight:600">:</td>
-    <td style="width:18%;"><?= $display_val ?> <?= $icon ?></td>
-    <td style="width:15%;"><?= htmlspecialchars($t['unit']) ?></td>
-    <td style="width:35%;"><?= $ref_display ?></td>
-</tr>
+                                            // simple (standalone) test
+                                            $display_val = htmlspecialchars($t['result_value']);
+                                            $icon        = '';
+                                            $ref_display = render_reference_range_html(
+                                                $t['test_id'],
+                                                $patient,
+                                                $t['result_value']
+                                            );
+                                            ?>
+                                            <tr>
+                                                <td style="width:30%;font-weight:500;"><?= htmlspecialchars($t['test_name']) ?><?= $method ?></td>
+                                                <td style="width:2%;font-weight:600">:</td>
+                                                <td style="width:18%;"><?= $display_val ?> <?= $icon ?></td>
+                                                <td style="width:15%;"><?= htmlspecialchars($t['unit']) ?></td>
+                                                <td style="width:35%;"><?= $ref_display ?></td>
+                                            </tr>
+
+
+
 
 
                                         <?php endforeach; ?>
@@ -779,6 +859,74 @@ if (! empty($referred_by_id)) {
                             <?php endif; ?>
 
                             <!-- Footer note (only on last chunk) -->
+                             <?php
+// —— Fetch dynamic signatures for lab and treating doctors ——
+// ─── Fetch the selected doctors ───
+// 1) Fetch all selected doctors for this report
+$stmt = $conn->prepare("
+  SELECT rld.doctor_id,
+         rld.is_treating_doctor,
+         d.name,
+         d.qualification,
+         d.reg_no,
+         d.signature
+    FROM report_lab_doctors rld
+    JOIN doctors d ON d.doctor_id = rld.doctor_id
+   WHERE rld.billing_id = ?
+   ORDER BY rld.is_treating_doctor DESC, d.name ASC
+");
+$stmt->bind_param("i", $billing_id);
+$stmt->execute();
+$res = $stmt->get_result();
+
+$treated    = [];
+$nonTreated = [];
+while ($row = $res->fetch_assoc()) {
+    if ((int)$row['is_treating_doctor'] === 1) {
+        $treated[] = $row;
+    } else {
+        $nonTreated[] = $row;
+    }
+}
+$stmt->close();
+
+// 2) Decide which two slots get which doctor
+$doc1 = null;
+$doc2 = null;
+
+if (count($treated) >= 2) {
+    // Scenario 5: both treated → show first two treated
+    $doc1 = $treated[0];
+    $doc2 = $treated[1];
+}
+elseif (count($treated) === 1) {
+    // One was flagged “treated”
+    $t = $treated[0];
+    if (count($nonTreated) >= 1) {
+        // Scenario 3 or 4: one treated + one not
+        $doc1 = $nonTreated[0];
+        $doc2 = $t;
+    } else {
+        // Scenario 2: only one doctor, and treated
+        $doc1 = $t;
+    }
+}
+else {
+    // No one treated
+    if (count($nonTreated) >= 2) {
+        // Scenario 6: two selected, neither treated
+        $doc1 = $nonTreated[0];
+        $doc2 = $nonTreated[1];
+    } elseif (count($nonTreated) === 1) {
+        // One selected, not treated → show details only
+        $doc1 = $nonTreated[0];
+    }
+    // else Scenario 1: none selected → both null
+}
+?>
+
+
+
 
                             <div class="print-footer">
                                 <?php
@@ -801,40 +949,47 @@ if (! empty($referred_by_id)) {
                                         <canvas id="qr-code-<?= $billing_id . '-' . md5($dept) ?>"></canvas>
                                     </div>
                                     <div class="col-md-3 text-left">
-                                        <img src="uploads/signature.png" alt="Signature" style="max-height: 50px;"><br>
-                                        <strong>Dr. Tirthankar Sarkar</strong><br>
-                                        MBBS, MD (Path)<br>
-                                        Consultant Pathologist<br>
-                                        Reg.No. 64265
+                                        <img src="uploads/signature2.png" alt="Signature" style="max-height: 50px;"><br>
+                                        <strong>SABINA YEASMIN</strong><br>
+                                        Medical Lab Technician<br>
                                     </div>
-                                    <div class="col-md-3 text-left">
-                                        <?php if (!empty($lab_doctors[0])):
-                                            $doc1 = $lab_doctors[0]; ?>
-                                            <?php if ($doc1['is_treating_doctor']): ?>
-                                                <img src="uploads/signature.png" alt="Signature" style="max-height: 50px;"><br>
-                                            <?php endif; ?>
-                                            <strong><?= htmlspecialchars($doc1['name']) ?></strong><br>
-                                            <?= htmlspecialchars($doc1['qualification']) ?><br>
-                                            <?= htmlspecialchars($doc1['specialization']) ?><br>
-                                            Reg.No. <?= htmlspecialchars($doc1['reg_no']) ?>
-                                        <?php else: ?>
-                                            <em>No Lab Doctor</em>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="col-md-3 text-left">
-                                        <?php if (!empty($lab_doctors[1])):
-                                            $doc2 = $lab_doctors[1]; ?>
-                                            <?php if ($doc2['is_treating_doctor']): ?>
-                                                <img src="uploads/signature.png" alt="Signature" style="max-height: 50px;"><br>
-                                            <?php endif; ?>
-                                            <strong><?= htmlspecialchars($doc2['name']) ?></strong><br>
-                                            <?= htmlspecialchars($doc2['qualification']) ?><br>
-                                            <?= htmlspecialchars($doc2['specialization']) ?><br>
-                                            Reg.No. <?= htmlspecialchars($doc2['reg_no']) ?>
-                                        <?php else: ?>
-                                            <em>No Lab Doctor</em>
-                                        <?php endif; ?>
-                                    </div>
+<!-- DOC SLOT #1 -->
+<div class="col-md-3 text-left">
+  <?php if ($doc1): ?>
+    <!-- signature only if treated -->
+    <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
+      <img
+        src="uploads/signatures/<?= htmlspecialchars($doc1['signature'])?>"
+        alt="Signature of Dr. <?= htmlspecialchars($doc1['name'])?>"
+        style="max-height:50px; margin-bottom:5px; display:block;"
+      >
+    <?php endif; ?>
+    <strong><?= htmlspecialchars($doc1['name']) ?></strong><br>
+    <?= htmlspecialchars($doc1['qualification']) ?><br>
+    Reg. No. <?= htmlspecialchars($doc1['reg_no']) ?>
+  <?php endif; ?>
+</div>
+
+<!-- DOC SLOT #2 -->
+<div class="col-md-3 text-left">
+  <?php if ($doc2): ?>
+    <!-- signature only if treated -->
+    <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
+      <img
+        src="uploads/signatures/<?= htmlspecialchars($doc2['signature'])?>"
+        alt="Signature of Dr. <?= htmlspecialchars($doc2['name'])?>"
+        style="max-height:50px; margin-bottom:5px; display:block;"
+      >
+    <?php endif; ?>
+    <strong><?= htmlspecialchars($doc2['name']) ?></strong><br>
+    <?= htmlspecialchars($doc2['qualification']) ?><br>
+    Reg. No. <?= htmlspecialchars($doc2['reg_no']) ?>
+  <?php endif; ?>
+</div>
+
+
+
+
                                 </div>
                             </div>
 
