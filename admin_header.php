@@ -105,6 +105,11 @@ $pending_count = ($pending_result && $pending_result->num_rows > 0) ? $pending_r
         .topbar i:hover {
             color: #007bff;
         }
+        .sidebar a,
+    .sidebar button {
+    margin-bottom: 0.5rem;
+    }
+
     </style>
 
 
@@ -128,106 +133,173 @@ $pending_count = ($pending_result && $pending_result->num_rows > 0) ? $pending_r
     <hr style="background:white">
 
     <!-- Dashboard -->
-    <a href="admin_dashboard.php" class="<?= ($currentPage == 'admin_dashboard.php') ? 'bg-primary text-white' : '' ?>">📈 Dashboard</a>
+    <a href="admin_dashboard.php" class="<?= ($currentPage == 'admin_dashboard.php') ? 'bg-primary text-white' : '' ?>">
+        📈 Dashboard
+    </a>
 
-    <!-- Patient & Tests -->
-    <a href="add_patient.php" class="<?= ($currentPage == 'add_patient.php') ? 'bg-primary text-white' : '' ?>">➕ Register Patient</a>
-    <a href="assign_test.php" class="<?= ($currentPage == 'assign_test.php') ? 'bg-primary text-white' : '' ?>">📌 Assign Test</a>
+    <!-- Patients -->
+    <a href="add_patient.php" class="<?= ($currentPage == 'add_patient.php') ? 'bg-primary text-white' : '' ?>">
+        ➕ Register Patient
+    </a>
+
+    <!-- Assignments -->
+    <a href="assign_test.php" class="<?= ($currentPage == 'assign_test.php') ? 'bg-primary text-white' : '' ?>">
+        📌 Assign Test
+    </a>
 
     <!-- Results & Billing -->
-     <a href="billing.php" class="<?= ($currentPage == 'billing.php') ? 'bg-primary text-white' : '' ?>">💳 Billing</a>
-
-    <!-- Test Management -->
-    <button class="btn btn-sm btn-secondary btn-block text-left" data-toggle="collapse" data-target="#testMenu">
-        🧪 Test Management
-    </button>
-    <div id="testMenu" class="collapse <?= in_array($currentPage, ['add_test.php', 'view_tests.php', 'edit_test.php', 'delete_test.php', 'restore_tests.php', 'test_category_manager.php', 'test_ranges.php']) ? 'show' : '' ?>">
-        <a href="add_test.php" class="<?= ($currentPage == 'add_test.php') ? 'bg-primary text-white' : '' ?>">➕ Add Test</a>
-        <a href="view_tests.php" class="<?= ($currentPage == 'view_tests.php') ? 'bg-primary text-white' : '' ?>">📋 View Tests</a>
-        <a href="test_category_manager.php" class="<?= ($currentPage == 'test_category_manager.php') ? 'bg-primary text-white' : '' ?>">📂 Categories</a>
-    </div>
-
-    <!-- Enter Results -->
-    <a href="enter_results.php" class="<?= ($currentPage == 'enter_results.php') ? 'bg-primary text-white' : '' ?>">📝 Enter Results</a>
-
+        <a href="billing.php" class="<?= ($currentPage == 'billing.php') ? 'bg-primary text-white' : '' ?>">
+        💳 Billing
+    </a>
+    <a href="enter_results.php" class="<?= ($currentPage == 'enter_results.php') ? 'bg-primary text-white' : '' ?>">
+        📝 Enter Results
+    </a>
 
     <!-- Reports -->
     <button class="btn btn-sm btn-secondary btn-block text-left" data-toggle="collapse" data-target="#reportMenu">
         📤 Reports
     </button>
-    <div id="reportMenu" class="collapse <?= in_array($currentPage, ['generate_report.php', 'finalize_report.php', 'reports.php', 'save_report.php', 'mark_report_finished.php', 'fetch_report_data.php']) ? 'show' : '' ?>">
-        <a href="finalize_report.php" class="<?= ($currentPage == 'finalize_report.php') ? 'bg-primary text-white' : '' ?>">✔️ Finalize Report</a>
-        <a href="generate_report.php" class="<?= ($currentPage == 'generate_report.php') ? 'bg-primary text-white' : '' ?>">🧾 Generate Report</a>
+    <div id="reportMenu" class="collapse <?= in_array($currentPage, [
+            'finalize_report.php','generate_report.php','reports.php',
+            'save_report.php','mark_report_finished.php',
+            'fetch_report_data.php','unlock_report_status.php'
+        ]) ? 'show' : '' ?>">
+        <a href="finalize_report.php" class="<?= ($currentPage == 'finalize_report.php') ? 'bg-primary text-white' : '' ?>">
+            ✔️ Finalize Report
+        </a>
+        <a href="generate_report.php" class="<?= ($currentPage == 'generate_report.php') ? 'bg-primary text-white' : '' ?>">
+            🧾 Generate Report
+        </a>
     </div>
 
-        <a href="cashbook.php" class="<?= ($currentPage == 'cashbook.php') ? 'bg-primary text-white' : '' ?>">📒 Cashbook</a>
+    <!-- Cashbook -->
+    <a href="cashbook.php" class="<?= ($currentPage == 'cashbook.php') ? 'bg-primary text-white' : '' ?>">
+        📒 Cashbook
+    </a>
+        <!-- Test Management -->
+    <button class="btn btn-sm btn-secondary btn-block text-left" data-toggle="collapse" data-target="#testMenu">
+        🧪 Test Management
+    </button>
+    <div id="testMenu" class="collapse <?= in_array($currentPage, [
+            'add_test.php','view_tests.php','edit_test.php',
+            'delete_test.php','restore_tests.php',
+            'test_category_manager.php','test_ranges.php'
+        ]) ? 'show' : '' ?>">
+        <a href="add_test.php" class="<?= ($currentPage == 'add_test.php') ? 'bg-primary text-white' : '' ?>">
+            ➕ Add Test
+        </a>
+        <a href="view_tests.php" class="<?= ($currentPage == 'view_tests.php') ? 'bg-primary text-white' : '' ?>">
+            📋 View Tests
+        </a>
+        <a href="test_category_manager.php" class="<?= ($currentPage == 'test_category_manager.php') ? 'bg-primary text-white' : '' ?>">
+            📂 Categories
+        </a>
+            <a href="manage_departments.php" class="<?= ($currentPage == 'manage_departments.php') ? 'bg-primary text-white' : '' ?>">
+        🏭 Departments
+    </a>
+    </div>
 
     <!-- Doctor Management -->
     <button class="btn btn-sm btn-secondary btn-block text-left" data-toggle="collapse" data-target="#doctorMenu">
         👨‍⚕️ Doctor Management
     </button>
-    <div id="doctorMenu" class="collapse <?= in_array($currentPage, ['doctor_add.php', 'view_doctors.php', 'edit_doctor.php', 'delete_doctor.php', 'restore_doctor.php', 'doctor_commission_report.php']) ? 'show' : '' ?>">
-        <a href="doctor_add.php" class="<?= ($currentPage == 'doctor_add.php') ? 'bg-primary text-white' : '' ?>">➕ Add Doctor</a>
-        <a href="view_doctors.php" class="<?= ($currentPage == 'view_doctors.php') ? 'bg-primary text-white' : '' ?>">📋 View Doctors</a>
-        <a href="doctor_commission_report.php" class="<?= ($currentPage == 'doctor_commission_report.php') ? 'bg-primary text-white' : '' ?>">💰 Commissions</a>
+    <div id="doctorMenu" class="collapse <?= in_array($currentPage, [
+            'doctor_add.php','view_doctors.php','edit_doctor.php',
+            'delete_doctor.php','restore_doctor.php','doctor_commission_report.php'
+        ]) ? 'show' : '' ?>">
+        <a href="doctor_add.php" class="<?= ($currentPage == 'doctor_add.php') ? 'bg-primary text-white' : '' ?>">
+            ➕ Add Doctor
+        </a>
+        <a href="view_doctors.php" class="<?= ($currentPage == 'view_doctors.php') ? 'bg-primary text-white' : '' ?>">
+            📋 View Doctors
+        </a>
+        <a href="doctor_commission_report.php" class="<?= ($currentPage == 'doctor_commission_report.php') ? 'bg-primary text-white' : '' ?>">
+            💰 Commissions
+        </a>
     </div>
 
     <!-- Utilities -->
-    <a href="notifications.php" class="<?= ($currentPage == 'notifications.php') ? 'bg-primary text-white' : '' ?>">🔔 Notifications</a>
-    <a href="lab_settings.php" class="<?= ($currentPage == 'lab_settings.php') ? 'bg-primary text-white' : '' ?>">⚙️ Lab Settings</a>
+    <a href="notifications.php" class="<?= ($currentPage == 'notifications.php') ? 'bg-primary text-white' : '' ?>">
+        🔔 Notifications
+    </a>
+    <a href="lab_settings.php" class="<?= ($currentPage == 'lab_settings.php') ? 'bg-primary text-white' : '' ?>">
+        ⚙️ Lab Settings
+    </a>
 
     <!-- Profile & Logout -->
     <hr style="background:white">
-    <a href="profile_settings.php" class="<?= ($currentPage == 'profile_settings.php') ? 'bg-primary text-white' : '' ?>">👤 Profile</a>
-    <a href="change_password.php" class="<?= ($currentPage == 'change_password.php') ? 'bg-primary text-white' : '' ?>">🔑 Change Password</a>
-    <a href="logout.php" class="<?= ($currentPage == 'logout.php') ? 'bg-primary text-white' : '' ?>">🔓 Logout</a>
+    <a href="profile_settings.php" class="<?= ($currentPage == 'profile_settings.php') ? 'bg-primary text-white' : '' ?>">
+        👤 Profile
+    </a>
+    <a href="change_password.php" class="<?= ($currentPage == 'change_password.php') ? 'bg-primary text-white' : '' ?>">
+        🔑 Change Password
+    </a>
+    <a href="logout.php" class="<?= ($currentPage == 'logout.php') ? 'bg-primary text-white' : '' ?>">
+        🔓 Logout
+    </a>
 </div>
+
 
 <div class="main-content">
 
-        <!-- Topbar -->
-        <?php
-        $notiCountRes = $conn->query("
-    SELECT COUNT(*) AS pending_count
-    FROM test_assignments a
-    LEFT JOIN results r ON a.assignment_id = r.assignment_id
-    WHERE r.assignment_id IS NULL
-");
-        $notiCount = $notiCountRes->fetch_assoc()['pending_count'] ?? 0;
-        ?>
+  <!-- Topbar -->
+  <?php
+    // Count any test assignments whose billing.rstatus isn’t ‘complete’
+    $notiSql = "
+      SELECT COUNT(*) AS cnt
+        FROM test_assignments a
+        JOIN billing        b ON a.billing_id = b.billing_id
+       WHERE b.rstatus <> 'complete'
+    ";
+    $res = $conn->query($notiSql);
+    $notiCount = $res->fetch_assoc()['cnt'] ?? 0;
+  ?>
+  <div class="topbar d-flex justify-content-end align-items-center">
+      <!-- Notification Bell -->
+      <div class="mr-3 position-relative">
+          <a href="notifications.php" class="text-dark">
+              <i class="fas fa-bell fa-lg"></i>
+              <?php if ($notiCount > 0): ?>
+                  <span class="badge badge-danger position-absolute" style="top:-5px; right:-8px;">
+                    <?= $notiCount ?>
+                  </span>
+              <?php endif; ?>
+          </a>
+      </div>
 
-        <div class="topbar d-flex justify-content-end align-items-center">
-            <!-- Notification Bell -->
-            <div class="mr-3 position-relative">
-                <a href="notifications.php" class="text-dark" id="notificationIcon">
-                    <i class="fas fa-bell fa-lg"></i>
-                    <?php if ($notiCount > 0): ?>
-                        <span class="badge badge-danger position-absolute" style="top: -5px; right: -8px;"><?= $pending_count ?></span>
-                    <?php endif; ?>
-                </a>
-            </div>
-
-            <!-- Profile Dropdown -->
-            <div class="dropdown">
-                <a class="dropdown-toggle text-dark d-flex align-items-center" href="#" role="button" id="userDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                    <?php
-                    $profile_image = $_SESSION['profile_photo'] ?? '';
-                    $profile_image_path = (!empty($profile_image) && file_exists($profile_image)) ? $profile_image : '';
-
-                    if ($profile_image_path) {
-                        echo '<img src="' . htmlspecialchars($profile_image_path) . '" alt="Profile" class="rounded-circle mr-2" width="35" height="35">';
-                    } else {
-                        $initial = strtoupper($_SESSION['admin_username'][0] ?? 'A');
-                        echo '<div class="rounded-circle bg-primary text-white d-flex justify-content-center align-items-center mr-2" style="width:35px;height:35px;font-size:16px;">' . $initial . '</div>';
-                    }
-                    ?>
-                    <span><?= htmlspecialchars($_SESSION['admin_username']) ?></span>
-                </a>
-                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="userDropdown">
-                    <a class="dropdown-item" href="profile_settings.php"><i class="fas fa-user-cog"></i> Profile Settings</a>
-                    <a class="dropdown-item" href="change_password.php"><i class="fas fa-key"></i> Change Password</a>
-                    <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" href="logout.php"><i class="fas fa-sign-out-alt"></i> Logout</a>
-                </div>
-            </div>
-        </div>
+      <!-- Profile Dropdown -->
+      <div class="dropdown">
+          <a
+            class="dropdown-toggle text-dark d-flex align-items-center"
+            href="#"
+            id="userDropdown"
+            data-toggle="dropdown"
+            aria-haspopup="true"
+            aria-expanded="false"
+          >
+              <?php
+                $photo = $_SESSION['profile_photo'] ?? '';
+                if ($photo && file_exists($photo)) {
+                  echo '<img src="' . htmlspecialchars($photo) . '" class="rounded-circle mr-2" width="35" height="35">';
+                } else {
+                  $initial = strtoupper($_SESSION['admin_username'][0] ?? 'A');
+                  echo "<div class=\"rounded-circle bg-primary text-white d-flex justify-content-center align-items-center mr-2\" style=\"width:35px;height:35px;font-size:16px;\">{$initial}</div>";
+                }
+              ?>
+              <span><?= htmlspecialchars($_SESSION['admin_username']) ?></span>
+          </a>
+          <div class="dropdown-menu dropdown-menu-right" aria-labelledby="userDropdown">
+              <a class="dropdown-item" href="profile_settings.php">
+                <i class="fas fa-user-cog mr-1"></i> Profile Settings
+              </a>
+              <a class="dropdown-item" href="change_password.php">
+                <i class="fas fa-key mr-1"></i> Change Password
+              </a>
+              <div class="dropdown-divider"></div>
+              <a class="dropdown-item" href="logout.php">
+                <i class="fas fa-sign-out-alt mr-1"></i> Logout
+              </a>
+          </div>
+      </div>
+  </div>
+  <!-- …rest of your page content… -->
