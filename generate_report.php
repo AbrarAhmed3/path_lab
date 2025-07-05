@@ -7,287 +7,328 @@ if (!isset($_SESSION['admin_logged_in'])) {
 include 'admin_header.php';
 include 'db.php';
 
-$patient_id = $_GET['patient_id'] ?? null;
-$billing_id = $_GET['billing_id'] ?? null;
+$patient_id = isset($_GET['patient_id']) ? intval($_GET['patient_id']) : null;
+$billing_id = isset($_GET['billing_id']) ? intval($_GET['billing_id']) : null;
 
 $patient = null;
 $results_by_department = [];
 
-// ─────────────────────────────────────────────────
-// Helper: render any test or component‐specific ref‐range
-// ─────────────────────────────────────────────────
+/**
+ * Helper: render the single reference range bracket for a test:
+ * - treats NULL bounds as unbounded (< high or > low)
+ * - always wraps the range in [ … ]
+ * - omits any condition_label or component_label
+ */
 function render_reference_range_html($test_id, $patient, $value = null, $component_label = null)
 {
     global $conn;
 
-    // 0) blank for text‐only
+    // 0) If non-numeric (text) result, no numeric range
     if ($value !== null && !is_numeric($value)) {
         return '';
     }
 
-    // 1) if pregnant, try a direct pregnancy query first
+    // 1) Pregnancy-specific range (if female & pregnant, no component)
     if (
-        $component_label === null
-        && !empty($patient['gestational_weeks'])
-        && strtolower($patient['gender']) === 'female'
+        $component_label === null &&
+        !empty($patient['gestational_weeks']) &&
+        strtolower($patient['gender']) === 'female'
     ) {
         $pq = $conn->prepare("
-      SELECT condition_label, value_low, value_high
-      FROM test_ranges
-      WHERE test_id       = ?
-        AND range_type    = 'pregnancy'
-        AND ? BETWEEN gestation_min AND gestation_max
-      ORDER BY gestation_min DESC
-      LIMIT 1
-    ");
-        $pq->bind_param(
-            'ii',
+            SELECT value_low, value_high
+              FROM test_ranges
+             WHERE test_id    = ?
+               AND range_type = 'pregnancy'
+               AND ? BETWEEN gestation_min AND gestation_max
+               AND (
+                    (value_low  IS NULL OR ? >= value_low)
+                 AND (value_high IS NULL OR ? <= value_high)
+               )
+             ORDER BY gestation_min DESC
+             LIMIT 1
+        ");
+        $pq->bind_param('iidd',
             $test_id,
-            $patient['gestational_weeks']
+            $patient['gestational_weeks'],
+            $value,
+            $value
         );
         $pq->execute();
-        $preg = $pq->get_result()->fetch_assoc();
-        $pq->close();
-
-        if ($preg) {
-            $low  = $preg['value_low'];
-            $high = $preg['value_high'];
-            $cond = htmlspecialchars($preg['condition_label']);
-            return "{$cond}: {$low} - {$high}";
+        $res = $pq->get_result();
+        if ($r = $res->fetch_assoc()) {
+            $low  = $r['value_low'];
+            $high = $r['value_high'];
+            // build inner bracket
+            if ($low === null && $high === null)       $inner = '-';
+            elseif ($low === null)                     $inner = "< {$high}";
+            elseif ($high === null)                    $inner = "> {$low}";
+            elseif ($low == $high)                     $inner = "{$low}";
+            else                                        $inner = "{$low} - {$high}";
+            $pq->close();
+            return "[ {$inner} ]";
         }
+        $pq->close();
     }
 
-    // 2) otherwise fall back to your general SQL
+    // 2) General/component bracket containing the result
     $sql = "
-    SELECT *
-    FROM test_ranges
-    WHERE test_id = ?
-      AND (gender = ? OR gender = 'Any')
-      AND (age_min  IS NULL OR age_min  <= ?)
-      AND (age_max  IS NULL OR age_max  >= ?)
-      AND (
-        (gestation_min IS NULL AND gestation_max IS NULL)
-        OR (? BETWEEN gestation_min AND gestation_max)
-      )
-  ";
+        SELECT *
+          FROM test_ranges
+         WHERE test_id = ?
+           AND (gender = ? OR gender = 'Any')
+           AND (age_min IS NULL OR age_min <= ?)
+           AND (age_max IS NULL OR age_max >= ?)
+           AND (
+             (gestation_min IS NULL AND gestation_max IS NULL)
+             OR (? BETWEEN gestation_min AND gestation_max)
+           )
+           AND (
+                (value_low  IS NULL OR ? >= value_low)
+             AND (value_high IS NULL OR ? <= value_high)
+           )
+    ";
     if ($component_label !== null) {
         $sql .= " AND range_type = 'component' AND condition_label = ? ";
     }
     $sql .= "
-    ORDER BY FIELD(range_type,'label','component','age_gender','gender','age','simple'),
-             gestation_min DESC,
-             age_min       DESC
-  ";
+         ORDER BY
+           FIELD(range_type,'label','component','age_gender','gender','age','simple'),
+           gestation_min DESC,
+           age_min       DESC
+         LIMIT 1
+    ";
 
     $stmt = $conn->prepare($sql);
     if ($component_label !== null) {
         $stmt->bind_param(
-            'isiiis',
+            'isiiidds',
             $test_id,
             $patient['gender'],
             $patient['age'],
             $patient['age'],
             $patient['gestational_weeks'],
+            $value,
+            $value,
             $component_label
         );
     } else {
         $stmt->bind_param(
-            'isiii',
+            'isiiidd',
             $test_id,
             $patient['gender'],
             $patient['age'],
             $patient['age'],
-            $patient['gestational_weeks']
+            $patient['gestational_weeks'],
+            $value,
+            $value
         );
     }
     $stmt->execute();
-    $ranges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $stmt->close();
-
-    // 3) render the first matching “label/age_gender/gender/age/simple/component”
-    foreach ($ranges as $r) {
+    $res = $stmt->get_result();
+    if ($r = $res->fetch_assoc()) {
         $low  = $r['value_low'];
         $high = $r['value_high'];
-        $type = $r['range_type'];
-        $cond = htmlspecialchars($r['condition_label'] ?? '');
-
-        // component test
-        if ($component_label !== null && $type === 'component') {
-            if ($low === null && $high === null)       return '-';
-            if ($low === null)                         return "&lt; {$high}";
-            if ($high === null)                        return "&gt; {$low}";
-            if ($low == $high)                         return "{$low}";
-            return "{$low} - {$high}";
-        }
-
-        // simple/label/gender/age/etc.
-        if (
-            $component_label === null
-            && in_array($type, ['label', 'age_gender', 'gender', 'age', 'simple'], true)
-        ) {
-            if ($type === 'label') {
-                return "{$cond}: {$low} - {$high}";
-            } else {
-                if ($low === null && $high === null)       return '-';
-                if ($low === null)                         return "&lt; {$high}";
-                if ($high === null)                        return "&gt; {$low}";
-                if ($low == $high)                         return "{$low}";
-                return "{$low} - {$high}";
-            }
-        }
+        // build inner bracket
+        if ($low === null && $high === null)       $inner = '-';
+        elseif ($low === null)                     $inner = "< {$high}";
+        elseif ($high === null)                    $inner = "> {$low}";
+        elseif ($low == $high)                     $inner = "{$low}";
+        else                                        $inner = "{$low} - {$high}";
+        $stmt->close();
+        return "[ {$inner} ]";
     }
+    $stmt->close();
 
-    // 4) nothing matched → blank
+    // 3) Fallback: any gender/age_gender/simple span
+    $fbSql = "
+        SELECT *
+          FROM test_ranges
+         WHERE test_id = ?
+           AND (gender = ? OR gender = 'Any')
+           AND (age_min IS NULL OR age_min <= ?)
+           AND (age_max IS NULL OR age_max >= ?)
+           AND (
+             (gestation_min IS NULL AND gestation_max IS NULL)
+             OR (? BETWEEN gestation_min AND gestation_max)
+           )
+           AND range_type IN ('age_gender','gender','simple')
+         ORDER BY FIELD(range_type,'age_gender','gender','simple'),
+                  gestation_min DESC,
+                  age_min       DESC
+         LIMIT 1
+    ";
+    $fb = $conn->prepare($fbSql);
+    $fb->bind_param(
+        'isiii',
+        $test_id,
+        $patient['gender'],
+        $patient['age'],
+        $patient['age'],
+        $patient['gestational_weeks']
+    );
+    $fb->execute();
+    $fres = $fb->get_result();
+    if ($f = $fres->fetch_assoc()) {
+        $low  = $f['value_low'];
+        $high = $f['value_high'];
+        // build inner bracket
+        if ($low === null && $high === null)       $inner = '-';
+        elseif ($low === null)                     $inner = "< {$high}";
+        elseif ($high === null)                    $inner = "> {$low}";
+        elseif ($low == $high)                     $inner = "{$low}";
+        else                                        $inner = "{$low} - {$high}";
+        $fb->close();
+        return "[ {$inner} ]";
+    }
+    $fb->close();
+
+    // 4) No matching range
     return '';
 }
 
-
-
-
-
-
+// ─────────────────────────────────────────────────
+// Fetch metadata & booking/report dates
+// ─────────────────────────────────────────────────
 $booking_on = $report_generated_on = null;
 if ($billing_id) {
-
-    $lab_doctors = []; // holds all lab doctors
-    $treated_indexes = []; // index of doctors who are treating
-
+    // Lab doctors
     $stmt = $conn->prepare("
-    SELECT d.name, d.qualification, d.specialization, d.reg_no, r.is_treating_doctor
-    FROM report_lab_doctors r
-    JOIN doctors d ON r.doctor_id = d.doctor_id
-    WHERE r.billing_id = ?
-");
+        SELECT d.name, d.qualification, d.specialization, d.reg_no, r.is_treating_doctor
+          FROM report_lab_doctors r
+          JOIN doctors d ON r.doctor_id = d.doctor_id
+         WHERE r.billing_id = ?
+    ");
     $stmt->bind_param("i", $billing_id);
     $stmt->execute();
-    $result = $stmt->get_result();
-    while ($row = $result->fetch_assoc()) {
+    $labdoc_res = $stmt->get_result();
+    $lab_doctors = [];
+    while ($row = $labdoc_res->fetch_assoc()) {
         $lab_doctors[] = $row;
     }
     $stmt->close();
 
-    // Prepared statement for booking date
-    $stmt = $conn->prepare("SELECT MIN(assigned_date) AS booking_on FROM test_assignments WHERE billing_id = ?");
-    $stmt->bind_param("i", $billing_id);
-    $stmt->execute();
-    $booking_on = $stmt->get_result()->fetch_assoc()['booking_on'] ?? null;
-    $stmt->close();
-
-    // Prepared statement for report generated date
-    // Pull the date we actually finalized the report
+    // Booking date
     $stmt = $conn->prepare("
-    SELECT finalized_on
-    FROM billing
-    WHERE billing_id = ?
-");
+        SELECT MIN(assigned_date) AS booking_on
+          FROM test_assignments
+         WHERE billing_id = ?
+    ");
     $stmt->bind_param("i", $billing_id);
     $stmt->execute();
-    $report_generated_on = $stmt->get_result()->fetch_assoc()['finalized_on'] ?? null;
+    $book_res   = $stmt->get_result();
+    $booking_on = $book_res->fetch_assoc()['booking_on'] ?? null;
     $stmt->close();
 
-
-    // Fetch category mapping for test_ids
-
-    $all_tests_flat = [];
-    foreach ($results_by_department as $tests) {
-        foreach ($tests as $t) {
-            $all_tests_flat[] = $t;
-        }
-    }
-
-    $category_map = [];
-
-    if (!empty($all_tests_flat)) {
-        $test_ids = array_column($all_tests_flat, 'test_id');
-        $test_ids_str = implode(',', array_map('intval', $test_ids));
-
-        if (!empty($test_ids_str)) {
-            $category_sql = "
-            SELECT ct.test_id, tc.category_name
-            FROM category_tests ct
-            JOIN test_categories tc ON ct.category_id = tc.category_id
-            WHERE ct.test_id IN ($test_ids_str)
-        ";
-            $category_result = $conn->query($category_sql);
-            while ($row = $category_result->fetch_assoc()) {
-                $category_map[$row['test_id']] = $row['category_name'];
-            }
-        }
-    }
+    // Finalized date
+    $stmt = $conn->prepare("
+        SELECT finalized_on
+          FROM billing
+         WHERE billing_id = ?
+    ");
+    $stmt->bind_param("i", $billing_id);
+    $stmt->execute();
+    $rep_res             = $stmt->get_result();
+    $report_generated_on = $rep_res->fetch_assoc()['finalized_on'] ?? null;
+    $stmt->close();
 }
 
+// ─────────────────────────────────────────────────
+// Patient & machine info + main results query
+// ─────────────────────────────────────────────────
 $report_delivery = date("Y-m-d");
 
 if ($patient_id && $billing_id) {
-    // Get patient
+    // Patient details
     $stmt1 = $conn->prepare("SELECT * FROM patients WHERE patient_id = ?");
     $stmt1->bind_param("i", $patient_id);
     $stmt1->execute();
-    $patient = $stmt1->get_result()->fetch_assoc();
+    $p_res   = $stmt1->get_result();
+    $patient = $p_res->fetch_assoc();
     $stmt1->close();
 
-    // Get machine info
-    $machine_info_map = [];
-    $stmt2 = $conn->prepare("SELECT department_name, machine_name FROM report_machine_info WHERE billing_id = ?");
+    // Machine info
+    $stmt2 = $conn->prepare("
+        SELECT department_name, machine_name
+          FROM report_machine_info
+         WHERE billing_id = ?
+    ");
     $stmt2->bind_param("i", $billing_id);
     $stmt2->execute();
-    $result2 = $stmt2->get_result();
-    while ($row = $result2->fetch_assoc()) {
+    $m_res            = $stmt2->get_result();
+    $machine_info_map = [];
+    while ($row = $m_res->fetch_assoc()) {
         $machine_info_map[$row['department_name']] = $row['machine_name'];
     }
     $stmt2->close();
 
-    // Get tests and results by department
-    // Get tests and results by department, including range_type
-    // Fetch all assigned tests + their single “General” range for this patient & bill
-    // Fetch all assigned tests + their single “General” range for this patient & bill
+    // Tests + results + unit
     $stmt3 = $conn->prepare("
-    SELECT
-      ta.assignment_id,
-      t.test_id,
-      t.name              AS test_name,         -- use `name` not `test_name`
-      tr.result_value,
-      t.unit,
-      t.method,
-      tgr.range_type,
-      tgr.value_low,
-      tgr.value_high,
-      ta.assigned_via_profile,
-      d.department_name
-    FROM test_assignments AS ta
-    JOIN tests                AS t   ON ta.test_id        = t.test_id
-    LEFT JOIN test_results    AS tr  ON tr.assignment_id   = ta.assignment_id
-    LEFT JOIN test_ranges     AS tgr ON tgr.test_id        = t.test_id
-                                 AND tgr.condition_label = 'General'
-    LEFT JOIN departments     AS d   ON t.department_id    = d.department_id
-    WHERE ta.patient_id = ?
-      AND ta.billing_id = ?
-    ORDER BY d.department_name, t.name          -- order by the real column
-");
-    $stmt3->bind_param("ii", $patient_id, $billing_id);
+        SELECT
+          ta.assignment_id,
+          t.test_id,
+          t.name            AS test_name,
+          tr.result_value,
+          (
+            SELECT tr2.unit
+              FROM test_ranges tr2
+             WHERE tr2.test_id = t.test_id
+               AND (tr2.gender = ? OR tr2.gender = 'Any')
+               AND (tr2.age_min IS NULL OR tr2.age_min <= ?)
+               AND (tr2.age_max IS NULL OR tr2.age_max >= ?)
+               AND (
+                 (tr2.gestation_min IS NULL AND tr2.gestation_max IS NULL)
+                 OR (? BETWEEN tr2.gestation_min AND tr2.gestation_max)
+               )
+             ORDER BY
+               (tr2.gender    <> 'Any') DESC,
+               (tr2.age_min   IS NOT NULL) DESC,
+               (tr2.gestation_min IS NOT NULL) DESC
+             LIMIT 1
+          ) AS unit,
+          t.method,
+          d.department_name
+        FROM test_assignments AS ta
+        JOIN tests                AS t   ON ta.test_id      = t.test_id
+        LEFT JOIN test_results    AS tr  ON tr.assignment_id = ta.assignment_id
+        LEFT JOIN departments     AS d   ON t.department_id  = d.department_id
+        WHERE ta.patient_id = ?
+          AND ta.billing_id = ?
+        ORDER BY d.department_name, t.name
+    ");
+    $stmt3->bind_param(
+        "siiiii",
+        $patient['gender'],
+        $patient['age'],
+        $patient['age'],
+        $patient['gestational_weeks'],
+        $patient_id,
+        $billing_id
+    );
     $stmt3->execute();
     $res3 = $stmt3->get_result();
-
     while ($row = $res3->fetch_assoc()) {
         $results_by_department[$row['department_name']][] = $row;
     }
-
-
     $stmt3->close();
 }
 
-
-
-
-
+// ─────────────────────────────────────────────────
+// Utility: format simple ranges (unused by helper)
+// ─────────────────────────────────────────────────
 function formatRange($low, $high)
 {
     if ($low === null && $high === null) return "N/A";
-    if ($low === null) return "Up to $high";
-    if ($high === null) return "Above $low";
+    if ($low === null)                    return "Up to $high";
+    if ($high === null)                   return "Above $low";
     return $low == $high ? "$low" : "$low - $high";
 }
 ?>
+
+<!--
+  ... your existing HTML rendering (print-area, tables, signatures, etc.) goes here ...
+-->
+
+
 <!DOCTYPE html>
 <html>
 
@@ -297,227 +338,8 @@ function formatRange($low, $high)
     <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
-    <style>
-        body {
-            background-color: #f4f7fa;
-            font-family: 'Segoe UI', sans-serif;
-        }
-
-        .report-container {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: 1123px;
-            /* Full A4 height */
-            padding: 144px 20px 96px 20px;
-            /* 1.5 inch top, 1 inch bottom */
-            background: #fff;
-            border: 1px solid #ccc;
-            margin: 0 auto 0px auto;
-            border-radius: 6px;
-            position: relative;
-            box-sizing: border-box;
-            page-break-inside: avoid;
-        }
-
-        .report-body-content {
-            flex-grow: 1;
-        }
-
-        .custom-footer {
-            page-break-inside: avoid;
-        }
-
-
-
-        .info-table td {
-            font-size: 14px;
-            padding: 4px 8px;
-        }
-
-        .test-table th,
-        .test-table td {
-            font-size: 14px;
-            text-align: center;
-            vertical-align: middle;
-        }
-
-        .signature {
-            margin-top: 50px;
-            text-align: right;
-        }
-
-        .signature img {
-            height: 60px;
-        }
-
-        .footer-note {
-            text-align: center;
-            font-size: 12px;
-            margin-top: 20px;
-            border-top: 1px dashed #999;
-            padding-top: 10px;
-        }
-
-        .arrow-up {
-            color: red;
-            font-weight: 600;
-        }
-
-        .arrow-down {
-            color: blue;
-            font-weight: 600;
-        }
-
-        .result-value {
-            color: #222;
-            font-weight: 500;
-            font-size: 14px;
-        }
-
-        .method-note {
-            font-size: 13px;
-            color: #555;
-            display: block;
-        }
-
-        .barcode-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 10px auto;
-            height: 70px;
-            overflow: hidden;
-        }
-
-        .barcode-wrapper svg {
-            max-width: 100%;
-            max-height: 100%;
-            height: auto !important;
-            width: auto !important;
-        }
-
-        .watermark {
-            position: absolute;
-            top: 35%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 60px;
-            color: rgba(0, 0, 0, 0.05);
-            z-index: 0;
-            white-space: nowrap;
-            pointer-events: none;
-        }
-
-        .custom-footer p {
-            font-size: 14px;
-            line-height: 1.5;
-        }
-
-        .custom-footer canvas {
-            margin-bottom: 5px;
-        }
-
-        @media print {
-            .no-print {
-                display: none !important;
-            }
-
-            html,
-            body {
-                margin: 0;
-                padding: 0;
-                font-size: 12px;
-                line-height: 1.4;
-            }
-
-            .report-container {
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between;
-                height: 1123px;
-                padding: 144px 20px 96px 20px;
-                background: #fff;
-                border: 1px solid #ccc;
-                border-radius: 6px;
-                margin: 0 auto 24px auto;
-                /* Add space between pages */
-                box-sizing: border-box;
-                page-break-inside: avoid;
-            }
-
-        }
-
-        .report-container {
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            height: 1123px;
-            /* A4 height at 96dpi */
-            padding: 144px 20px 96px 20px;
-            /* 1.5 inch top, 1 inch bottom */
-            background: #fff;
-            border: 1px solid #ccc;
-            border-radius: 6px;
-            margin: 0 auto 0px auto;
-            box-sizing: border-box;
-            page-break-inside: avoid;
-        }
-
-        .custom-footer {
-            page-break-inside: avoid;
-        }
-
-        .test-table th,
-        .test-table td {
-            font-size: 13px;
-            text-align: left;
-            vertical-align: middle;
-            border: none !important;
-            padding: 8px 10px;
-        }
-
-        .test-table thead tr {
-            border-bottom: 1px solid #999 !important;
-        }
-
-        canvas[id^="qr-code-"] {
-            display: inline-block;
-            margin-top: 10px;
-            margin-bottom: 10px;
-        }
-
-        @page {
-            size: A4;
-            margin: 0;
-        }
-
-
-        @media print {
-            .print-footer {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                padding: 10px 20px;
-                background: white;
-                border-top: 1px solid #ccc;
-                font-size: 12px;
-                page-break-inside: avoid;
-            }
-
-            body {
-                margin-bottom: 180px;
-                /* leave space for footer */
-            }
-        }
-
-        .report-chunk {
-            page-break-after: always;
-        }
-    </style>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script> 
+    <link rel="stylesheet" href="report.css"> 
 </head>
 
 <body>
@@ -593,272 +415,180 @@ function formatRange($low, $high)
             <?php endif; ?>
         </div>
 
-        <div id="print-area">
-            <?php if ($patient && $billing_id): ?>
-                <?php foreach ($results_by_department as $dept => $tests): ?>
-                    <?php
-                    $test_chunks = array_chunk($tests, 10);
-                    $total_chunks = count($test_chunks);
-                    ?>
-                    <?php foreach ($test_chunks as $chunk_index => $test_group): ?>
-                        <div class="report-container">
-                            <div class="watermark">Hemo Diagnostic Centre & Polyclinic</div>
+<div id="print-area">
+    <?php if ($patient && $billing_id): ?>
+        <?php foreach ($results_by_department as $dept => $tests): ?>
+            <?php
+            $test_chunks  = array_chunk($tests, 10);
+            $total_chunks = count($test_chunks);
+            ?>
+            <?php foreach ($test_chunks as $chunk_index => $test_group): ?>
+                <div class="report-container">
+                    <div class="watermark">Hemo Diagnostic Centre & Polyclinic</div>
 
-                            <!-- Header Info -->
-                            <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
-                                <div class="col-md-4 pr-2" style="font-size: 13px;">
-                                    <strong>Patient Name:</strong> <?= $patient['name'] ?><br>
-                                    <strong>Sex / Age:</strong> <?= $patient['gender'] ?>/<?= $patient['age'] ?><br>
-                                    <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
-                                        <strong>Pregnancy Status:</strong> Pregnant (<?= $patient['gestational_weeks'] ?> weeks)<br>
-                                    <?php endif; ?>
-                                    <strong>Referred By:</strong> <?= $referrerName ?><br>
-                                    <strong>Bill No:</strong> <?= 'HDC_' . $billing_id ?>
-
-                                </div>
-
-                                <div class="col-md-4 text-center px-1">
-                                    <div class="barcode-wrapper">
-                                        <svg class="barcode"
-                                            jsbarcode-value="Bill: <?= $billing_id ?> | <?= $report_delivery ?>"
-                                            jsbarcode-format="CODE128"
-                                            jsbarcode-width="1.5"
-                                            jsbarcode-height="40"
-                                            jsbarcode-fontSize="10">
-                                        </svg>
-                                    </div>
-                                </div>
-
-                                <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
-                                    <div><strong>Booking On:</strong> <?= date('d-m-Y', strtotime($booking_on)) ?></div>
-
-                                    <div><strong>Generated On:</strong>
-                                        <?= $report_generated_on
-                                            ? date('d-m-Y', strtotime($report_generated_on))
-                                            : ''
-                                        ?>
-                                    </div>
-
-
-
-                                    <div><strong>Report Delivery:</strong> <?= date('d-m-Y', strtotime($report_delivery)) ?></div>
-                                </div>
+                    <!-- Header Info -->
+                    <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
+                        <div class="col-md-4 pr-2" style="font-size: 13px;">
+                            <strong>Patient Name:</strong> <?= $patient['name'] ?><br>
+                            <strong>Sex / Age:</strong> <?= $patient['gender'] ?>/<?= $patient['age'] ?><br>
+                            <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
+                                <strong>Pregnancy Status:</strong> Pregnant (<?= $patient['gestational_weeks'] ?> weeks)<br>
+                            <?php endif; ?>
+                            <strong>Referred By:</strong> <?= $referrerName ?><br>
+                            <strong>Bill No:</strong> <?= 'HDC_' . $billing_id ?>
+                        </div>
+                        <div class="col-md-4 text-center px-1">
+                            <div class="barcode-wrapper">
+                                <svg class="barcode"
+                                     jsbarcode-value="Bill: <?= $billing_id ?> | <?= $report_delivery ?>"
+                                     jsbarcode-format="CODE128"
+                                     jsbarcode-width="1.5"
+                                     jsbarcode-height="40"
+                                     jsbarcode-fontSize="10"></svg>
                             </div>
+                        </div>
+                        <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
+                            <div><strong>Booking On:</strong> <?= date('d-m-Y', strtotime($booking_on)) ?></div>
+                            <div><strong>Generated On:</strong>
+                                <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
+                            </div>
+                            <div><strong>Report Delivery:</strong> <?= date('d-m-Y', strtotime($report_delivery)) ?></div>
+                        </div>
+                    </div>
 
-                            <!-- Test Table -->
-                            <div class="report-body-content">
-                                <h5 class="text-center text-uppercase mb-3"><?= $dept ?> Department</h5>
-                                <table class="table test-table" style="border: none;">
-                                    <thead>
-                                        <tr style="border-bottom: 1px solid #999;">
-                                            <th style="font-weight: 600; text-align: left;">INVESTIGATION</th>
-                                            <th></th>
-                                            <th style="font-weight: 600; text-align: left;">RESULT</th>
-                                            <th style="font-weight: 600; text-align: left;">UNIT</th>
-                                            <th style="font-weight: 600; text-align: left;">REFERENCE RANGE</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php
-                                        $current_category = null;
+                    <!-- Test Table -->
+                    <div class="report-body-content">
+                        <h5 class="text-center text-uppercase mb-3"><?= $dept ?> Department</h5>
+                        <table class="table test-table" style="border: none;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid #999;">
+                                    <th style="font-weight: 600; text-align: left;">INVESTIGATION</th>
+                                    <th></th>
+                                    <th style="font-weight: 600; text-align: left;">RESULT</th>
+                                    <th style="font-weight: 600; text-align: left;">UNIT</th>
+                                    <th style="font-weight: 600; text-align: left;">REFERENCE RANGE</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($test_group as $t): ?>
+                                    <?php
+                                    // Handle component-based panels
+                                    $compStmt = $conn->prepare("
+                                        SELECT component_label, `value`, evaluation_label
+                                          FROM test_result_components
+                                         WHERE assignment_id = ?
+                                    ");
+                                    $compStmt->bind_param("i", $t['assignment_id']);
+                                    $compStmt->execute();
+                                    $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                                    $compStmt->close();
 
-                                        foreach ($test_group as $t):
-                                            $icon = '';
-                                            $ref_display = 'N/A';
-                                            $val = $t['result_value'];
-                                            $method = $t['method'] ? "<span class='method-note'>Method: " . htmlspecialchars($t['method']) . "</span>" : '';
-                                            $unit_display = is_numeric($val) ? $t['unit'] : '';
-
-                                            // Unit: only show if numeric
-                                            $ref_display  = $ref_display; // whatever you computed above
-
-                                            // Fetch category name
-                                            $category_name = null;
-                                            if (!empty($t['assigned_via_profile']) && $t['assigned_via_profile'] == 1) {
-                                                $stmtCat = $conn->prepare("
-        SELECT tc.category_name
-        FROM category_tests ct
-        JOIN test_categories tc ON ct.category_id = tc.category_id
-        WHERE ct.test_id = ?
-        LIMIT 1
-    ");
-                                                $stmtCat->bind_param("i", $t['test_id']);
-                                                $stmtCat->execute();
-                                                $resCat = $stmtCat->get_result();
-                                                $category_name = $resCat->fetch_assoc()['category_name'] ?? null;
-                                                $stmtCat->close();
-                                            }
-
-                                            // Override for Text-type ranges:
-
-
-                                            if ($category_name && $current_category !== $category_name):
-                                                $current_category = $category_name;
-                                        ?>
-                                                <tr>
-                                                    <td colspan="5" style="font-weight:bold; text-decoration: underline; padding-top: 12px;"><?= htmlspecialchars($category_name) ?></td>
-                                                </tr>
-                                            <?php endif;
-
-
-
-
-                                            // Fetch any sub‐tests/components for this assignment
-                                            $compStmt = $conn->prepare("
-                                             SELECT component_label, `value`, evaluation_label
-                                             FROM test_result_components
-                                              WHERE assignment_id = ?
-                                            ");
-                                            $compStmt->bind_param("i", $t['assignment_id']);
-                                            $compStmt->execute();
-                                            $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-                                            $compStmt->close();
-
-                                            if (count($components) > 0) {
-                                                // 3a) Panel heading row
-                                                echo "<tr class='panel-row'>
-                                                     <td colspan='5'><strong>"
-                                                    . htmlspecialchars($t['test_name'])
-                                                    . "</strong></td>
-                                                        </tr>";
-
-                                                // 3b) Each component row
-                                                foreach ($components as $c) {
-                                                    $ref_display = render_reference_range_html(
-                                                        $t['test_id'],
-                                                        $patient,
-                                                        $c['value'],
-                                                        $c['component_label']
-                                                    );
-                                                    $val = htmlspecialchars($c['value']);
-                                                    if (!empty($c['evaluation_label'])) {
-                                                        $val .= " ({$c['evaluation_label']})";
-                                                    }
-                                                    echo "<tr>
-                                                        <td style=\"padding-left:1.5rem;\">" . htmlspecialchars($c['component_label']) . "</td>
-                                                        <td>:</td>
-                                                        <td>{$val}</td>
-                                                                                                <td>" . htmlspecialchars($t['unit']) . "</td>
-                                                        <td>{$ref_display}</td>
-                                                    </tr>";
-                                                }
-
-                                                // Skip the rest of this loop and move to the next test
-                                                continue;
-                                            }
-                                            // Fetch reference range
-                                            // Replace your existing reference-range prepare() with this:
-                                            $display_val = htmlspecialchars($t['result_value']);
-                                            $icon        = '';
-                                            // 1) Fetch *all* matching ranges, label rows first
-                                            $stmt = $conn->prepare("
-                                            SELECT range_type, condition_label,
-                                                 value_low, value_high, unit, flag_label
-                                            FROM test_ranges
-                                         WHERE test_id = ?
-                                             AND (gender = ? OR gender = 'Any')
-                                            AND (age_min IS NULL OR age_min <= ?)
-                                             AND (age_max IS NULL OR age_max >= ?)
-                                             AND (
-                                                 (gestation_min IS NULL AND gestation_max IS NULL)
-                                                 OR (? BETWEEN gestation_min AND gestation_max)
-                                            )
-                                            ORDER BY FIELD(range_type,'label','age_gender','gender','age','simple'),
-                                                    gestation_min DESC,
-                                                    age_min       DESC
-                                        ");
-                                            $stmt->bind_param(
-                                                "isiii",
-                                                $t['test_id'],
-                                                $patient['gender'],
-                                                $patient['age'],
-                                                $patient['age'],
-                                                $patient['gestational_weeks']
-                                            );
-                                            $stmt->execute();
-                                            $ranges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
-                                            $stmt->close();
-
-                                            // 2) Build the display string
-                                            // assume $val is numeric result, e.g.:
-                                            $val = $t['result_value'];
-                                            $ref_display = '';
-
-                                            // first handle label‐type ranges that actually contain this value
-                                            foreach ($ranges as $r) {
-                                                if ($r['range_type'] !== 'label') continue;
-
-                                                $low  = $r['value_low'];
-                                                $high = $r['value_high'];
-
-                                                // check if $val is in this bracket
-                                                $matches = true;
-                                                if ($low !== null  && $val <  $low)  $matches = false;
-                                                if ($high !== null && $val >  $high) $matches = false;
-
-                                                if ($matches) {
-                                                    $ref_display .=
-                                                        htmlspecialchars($r['condition_label']) . ': ' .
-                                                        formatRange($low, $high) . ' (' .
-                                                        htmlspecialchars($r['flag_label']) . ')';
-                                                    // if you only ever want one label, break here
-                                                    break;
-                                                }
-                                            }
-
-                                            // if no label matched, fall back to the first non‐label
-                                            if ($ref_display === '') {
-                                                foreach ($ranges as $r) {
-                                                    if ($r['range_type'] === 'label') continue;
-                                                    $ref_display =
-                                                        formatRange($r['value_low'], $r['value_high']) . ' ' .
-                                                        htmlspecialchars($r['unit']);
-                                                    break;
-                                                }
-                                            }
-
-                                            // final fallback
-                                            if ($ref_display === '') {
-                                                $ref_display = 'N/A';
-                                            }
-
-                                            ?>
-
-                                            <?php
-                                            // simple (standalone) test
-                                            $display_val = htmlspecialchars($t['result_value']);
-                                            $icon        = '';
+                                    if (count($components) > 0) {
+                                        echo "<tr class='panel-row'>
+                                                <td colspan='5'><strong>"
+                                              . htmlspecialchars($t['test_name']) .
+                                              "</strong></td>
+                                              </tr>";
+                                        foreach ($components as $c) {
                                             $ref_display = render_reference_range_html(
                                                 $t['test_id'],
                                                 $patient,
-                                                $t['result_value']
+                                                $c['value'],
+                                                $c['component_label']
                                             );
+                                            $val = htmlspecialchars($c['value']);
+                                            if (!empty($c['evaluation_label'])) {
+                                                $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
+                                            }
+                                            echo "<tr>
+                                                    <td style=\"padding-left:1.5rem;\">"
+                                                      . htmlspecialchars($c['component_label']) .
+                                                      "</td>
+                                                    <td>:</td>
+                                                    <td>{$val}</td>
+                                                    <td>" . htmlspecialchars($t['unit']) . "</td>
+                                                    <td>{$ref_display}</td>
+                                                  </tr>";
+                                        }
+                                        continue;
+                                    }
+
+                                    // —— Arrow & bold logic for standalone tests —— 
+                                    $val = $t['result_value'];
+                                    $display_val = htmlspecialchars($val);
+
+                                    // Fetch the low/high bracket for comparison (no BETWEEN clause)
+                                    $stmtRef = $conn->prepare("
+                                        SELECT value_low, value_high
+                                          FROM test_ranges
+                                         WHERE test_id = ?
+                                           AND (gender = ? OR gender = 'Any')
+                                           AND (age_min IS NULL OR age_min <= ?)
+                                           AND (age_max IS NULL OR age_max >= ?)
+                                           AND (
+                                                (gestation_min IS NULL AND gestation_max IS NULL)
+                                                OR (? BETWEEN gestation_min AND gestation_max)
+                                           )
+                                         ORDER BY FIELD(range_type,'label','component','age_gender','gender','age','simple'),
+                                                  gestation_min DESC,
+                                                  age_min       DESC
+                                         LIMIT 1
+                                    ");
+                                    $stmtRef->bind_param(
+                                        "isiii",
+                                        $t['test_id'],
+                                        $patient['gender'],
+                                        $patient['age'],
+                                        $patient['age'],
+                                        $patient['gestational_weeks']
+                                    );
+                                    $stmtRef->execute();
+                                    $rr = $stmtRef->get_result()->fetch_assoc() ?: ['value_low' => null, 'value_high' => null];
+                                    $stmtRef->close();
+
+                                    $low  = $rr['value_low'];
+                                    $high = $rr['value_high'];
+
+                                    if (is_numeric($val)) {
+                                        if ($high !== null && $val > $high) {
+                                            $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
+                                        } elseif ($low !== null && $val < $low) {
+                                            $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
+                                        }
+                                    }
+
+                                    $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
+                                    ?>
+                                    <tr>
+                                        <td style="width:30%;font-weight:500;">
+                                            <?= htmlspecialchars($t['test_name']) ?>
+                                            <?= $t['method']
+                                                ? "<span class='method-note'>Method: " 
+                                                  . htmlspecialchars($t['method']) .
+                                                  "</span>"
+                                                : ''
                                             ?>
-                                            <tr>
-                                                <td style="width:30%;font-weight:500;"><?= htmlspecialchars($t['test_name']) ?><?= $method ?></td>
-                                                <td style="width:2%;font-weight:600">:</td>
-                                                <td style="width:18%;"><?= $display_val ?> <?= $icon ?></td>
-                                                <td style="width:15%;"><?= htmlspecialchars($t['unit']) ?></td>
-                                                <td style="width:35%;"><?= $ref_display ?></td>
-                                            </tr>
+                                        </td>
+                                        <td style="width:2%;font-weight:600">:</td>
+                                        <td style="width:18%;"><?= $display_val ?></td>
+                                        <td style="width:15%;"><?= htmlspecialchars($t['unit']) ?></td>
+                                        <td style="width:35%;"><?= $ref_display ?></td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
 
 
+                    <!-- Machine info (only on last chunk) -->
+                    <?php if ($chunk_index === $total_chunks - 1 && !empty($machine_info_map[$dept])): ?>
+                        <div class="mb-3 pl-2" style="text-align: left;">
+                            <strong>Instruments:</strong> <?= htmlspecialchars($machine_info_map[$dept]) ?>
+                        </div>
+                    <?php endif; ?>
 
 
-
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <!-- Machine info (only on last chunk) -->
-                            <?php if ($chunk_index === $total_chunks - 1 && !empty($machine_info_map[$dept])): ?>
-                                <div class="mb-3 pl-2" style="text-align: left;">
-                                    <strong>Instruments:</strong> <?= htmlspecialchars($machine_info_map[$dept]) ?>
-                                </div>
-                            <?php endif; ?>
-
-                            <!-- Footer note (only on last chunk) -->
+                     <!-- Footer note (only on last chunk) -->
                              <?php
 // —— Fetch dynamic signatures for lab and treating doctors ——
 // ─── Fetch the selected doctors ───
@@ -925,10 +655,8 @@ else {
 }
 ?>
 
-
-
-
-                            <div class="print-footer">
+                    <!-- Footer & signatures (unchanged) -->
+                                                <div class="print-footer">
                                 <?php
                                 $doctor = null;
                                 $qrText = "Patient: {$patient['name']} | ID: {$patient['patient_id']} | Bill: {$billing_id} | Report: " . date('d-m-Y', strtotime($report_generated_on));
@@ -992,13 +720,13 @@ else {
 
                                 </div>
                             </div>
+                </div>
+            <?php endforeach; ?>
+        <?php endforeach; ?>
+    <?php endif; ?>
+</div>
 
-                        </div>
-                    <?php endforeach; ?>
-                <?php endforeach; ?>
 
-            <?php endif; ?>
-        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>

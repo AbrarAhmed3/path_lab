@@ -1,0 +1,217 @@
+        body {
+            background-color: #f4f7fa;
+            font-family: 'Segoe UI', sans-serif;
+        }
+
+        .report-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 1123px;
+            /* Full A4 height */
+            padding: 144px 20px 96px 20px;
+            /* 1.5 inch top, 1 inch bottom */
+            background: #fff;
+            border: 1px solid #ccc;
+            margin: 0 auto 0px auto;
+            border-radius: 6px;
+            position: relative;
+            box-sizing: border-box;
+            page-break-inside: avoid;
+        }
+
+        .report-body-content {
+            flex-grow: 1;
+        }
+
+        .custom-footer {
+            page-break-inside: avoid;
+        }
+
+
+
+        .info-table td {
+            font-size: 14px;
+            padding: 4px 8px;
+        }
+
+        .test-table th,
+        .test-table td {
+            font-size: 14px;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        .signature {
+            margin-top: 50px;
+            text-align: right;
+        }
+
+        .signature img {
+            height: 60px;
+        }
+
+        .footer-note {
+            text-align: center;
+            font-size: 12px;
+            margin-top: 20px;
+            border-top: 1px dashed #999;
+            padding-top: 10px;
+        }
+
+        .arrow-up {
+            color: red;
+            font-weight: 600;
+        }
+
+        .arrow-down {
+            color: blue;
+            font-weight: 600;
+        }
+
+        .result-value {
+            color: #222;
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .method-note {
+            font-size: 13px;
+            color: #555;
+            display: block;
+        }
+
+        .barcode-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 10px auto;
+            height: 70px;
+            overflow: hidden;
+        }
+
+        .barcode-wrapper svg {
+            max-width: 100%;
+            max-height: 100%;
+            height: auto !important;
+            width: auto !important;
+        }
+
+        .watermark {
+            position: absolute;
+            top: 35%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 60px;
+            color: rgba(0, 0, 0, 0.05);
+            z-index: 0;
+            white-space: nowrap;
+            pointer-events: none;
+        }
+
+        .custom-footer p {
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .custom-footer canvas {
+            margin-bottom: 5px;
+        }
+
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+
+            html,
+            body {
+                margin: 0;
+                padding: 0;
+                font-size: 12px;
+                line-height: 1.4;
+            }
+
+            .report-container {
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                height: 1123px;
+                padding: 144px 20px 96px 20px;
+                background: #fff;
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                margin: 0 auto 24px auto;
+                /* Add space between pages */
+                box-sizing: border-box;
+                page-break-inside: avoid;
+            }
+
+        }
+
+        .report-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            height: 1123px;
+            /* A4 height at 96dpi */
+            padding: 144px 20px 96px 20px;
+            /* 1.5 inch top, 1 inch bottom */
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            margin: 0 auto 0px auto;
+            box-sizing: border-box;
+            page-break-inside: avoid;
+        }
+
+        .custom-footer {
+            page-break-inside: avoid;
+        }
+
+        .test-table th,
+        .test-table td {
+            font-size: 13px;
+            text-align: left;
+            vertical-align: middle;
+            border: none !important;
+            padding: 8px 10px;
+        }
+
+        .test-table thead tr {
+            border-bottom: 1px solid #999 !important;
+        }
+
+        canvas[id^="qr-code-"] {
+            display: inline-block;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+
+        @page {
+            size: A4;
+            margin: 0;
+        }
+
+
+        @media print {
+            .print-footer {
+                position: fixed;
+                bottom: 0;
+                left: 0;
+                right: 0;
+                padding: 10px 20px;
+                background: white;
+                border-top: 1px solid #ccc;
+                font-size: 12px;
+                page-break-inside: avoid;
+            }
+
+            body {
+                margin-bottom: 180px;
+                /* leave space for footer */
+            }
+        }
+
+        .report-chunk {
+            page-break-after: always;
+        }
