@@ -244,6 +244,11 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
     <title>Billing</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link
+  href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+  rel="stylesheet"
+/>
+
     <style>
         .badge-draft {
             background: #ffc107;
@@ -268,19 +273,28 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
             </div>
             <div class="card-body">
                 <form class="form-inline mb-4" method="GET">
-                    <label class="mr-2 font-weight-bold">Select Patient</label>
-                    <select name="patient_id" class="form-control mr-2" onchange="this.form.submit()">
-                        <option value="">-- Choose --</option>
-                        <?php
-                        $patients = $conn->query("SELECT patient_id, name FROM patients ORDER BY name ASC");
-                        while ($p = $patients->fetch_assoc()):
-                        ?>
-                            <option value="<?= $p['patient_id'] ?>" <?= ($patient_id == $p['patient_id']) ? 'selected' : '' ?>>
-                                <?= htmlspecialchars($p['name']) ?> (ID: <?= $p['patient_id'] ?>)
-                            </option>
-                        <?php endwhile; ?>
-                    </select>
-                </form>
+  <label class="mr-2 font-weight-bold">Select Patient</label>
+  <select
+      name="patient_id"
+      id="patient_select"
+      class="form-control mr-2"
+  >
+    <option></option><!-- allowClear needs an empty option -->
+    <?php
+    $patients = $conn->query("SELECT patient_id, name FROM patients ORDER BY name ASC");
+    while ($p = $patients->fetch_assoc()):
+    ?>
+      <option
+        value="<?= $p['patient_id'] ?>"
+        <?= ($patient_id == $p['patient_id']) ? 'selected' : '' ?>
+      >
+        <?= htmlspecialchars($p['name']) ?> (ID: <?= $p['patient_id'] ?>)
+      </option>
+    <?php endwhile; ?>
+  </select>
+</form>
+
+
 
                 <?php if ($patient): ?>
   <div class="form-group mb-3">
@@ -804,6 +818,26 @@ document.addEventListener('DOMContentLoaded',function(){
                     win.close();
                 }
             </script>
+
+            <script>
+  $(document).ready(function(){
+    $('#patient_select')
+      .select2({
+        placeholder: 'Search patient…',
+        allowClear: true,
+        width: 'style'   // match the original .form-control width
+      })
+      // submit the form as soon as a patient is picked
+      .on('select2:select', function(){
+        this.form.submit();
+      });
+  });
+</script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+
 
             <?php if (isset($_GET['toast']) && $_GET['toast'] == '1'): ?>
                 <script>
