@@ -18,7 +18,7 @@ $rstatus = 'not_started';
 $gstatus = 'not_ready';
 
 if ($selected_billing_id) {
-    $stmt = $conn->prepare("SELECT status, rstatus, gstatus FROM billing WHERE billing_id = ?");
+    $stmt = $conn->prepare("SELECT bstatus, rstatus, gstatus FROM billing WHERE billing_id = ?");
     $stmt->bind_param("i", $selected_billing_id);
     $stmt->execute();
     $stmt->bind_result($billing_status, $rstatus, $gstatus);
@@ -391,9 +391,9 @@ if ($selected_patient_id && $selected_billing_id) {
 
 
             <?php if ($selected_billing_id && $selected_patient_id): ?>
-                <?php if ($billing_status === 'finished'): ?>
+                <?php if ($gstatus === 'generated'): ?>
                     <div class="alert alert-info">
-                        <i class="fas fa-lock"></i> This report is marked as <strong>finished</strong>. Results are read-only.
+                        <i class="fas fa-lock"></i> This report is marked as <strong>generated</strong>. Results are read-only.
                     </div>
                 <?php endif; ?>
 
