@@ -345,75 +345,140 @@ function formatRange($low, $high)
 <body>
     <div class="container">
         <!-- Header and Filters -->
-        <div class="no-print mt-4 mb-3 text-right">
-            <form method="GET" class="form-inline mb-3">
-                <label class="mr-2">Patient:</label>
-                <select name="patient_id" class="form-control mr-2" onchange="this.form.submit()">
-                    <option value="">-- Select --</option>
-                    <?php
-                    $pList = $conn->query("SELECT patient_id, name FROM patients");
-                    while ($p = $pList->fetch_assoc()) {
-                        $sel = ($p['patient_id'] == $patient_id) ? 'selected' : '';
-                        echo "<option value='{$p['patient_id']}' $sel>{$p['name']} (ID: {$p['patient_id']})</option>";
-                    }
-                    ?>
-                </select>
-                <?php if ($patient_id): ?>
-                    <label class="ml-3 mr-2">Visit:</label>
-                    <select name="billing_id" class="form-control" onchange="this.form.submit()">
-                        <option value="">-- Select Visit --</option>
-                        <?php
-                        $visits = $conn->prepare("SELECT billing_id, billing_date FROM billing WHERE patient_id = ? ORDER BY billing_date DESC");
-                        $visits->bind_param("i", $patient_id);
-                        $visits->execute();
-                        $result = $visits->get_result();
-                        while ($v = $result->fetch_assoc()) {
-                            $s = ($v['billing_id'] == $billing_id) ? 'selected' : '';
-                            echo "<option value='{$v['billing_id']}' $s>Visit #{$v['billing_id']} - " . date('d M Y', strtotime($v['billing_date'])) . "</option>";
-                        }
-                        $visits->close();
-                        ?>
-                    </select>
-                <?php endif; ?>
-            </form>
-            <?php if ($patient && $billing_id): ?>
-                <?php
-                // Fetch fstatus and gstatus for display
-                $fstatus = $gstatus = null;
-                $status_stmt = $conn->prepare("SELECT fstatus, gstatus, referred_by FROM billing WHERE billing_id = ?");
-                $status_stmt->bind_param("i", $billing_id);
-                $status_stmt->execute();
-                $status_stmt->bind_result($fstatus, $gstatus, $referred_by_id);
-                $status_stmt->fetch();
-                $status_stmt->close();
+<?php
+// ─── At the top of generate_report.php, before any HTML ───
+$selectedPatientText = '';
+if (!empty($_GET['patient_id'])) {
+    $pid = (int)$_GET['patient_id'];
+    $stmt = $conn->prepare("SELECT name FROM patients WHERE patient_id = ?");
+    $stmt->bind_param("i", $pid);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    if ($row) {
+        $selectedPatientText = $row['name'] . " (ID: {$pid})";
+    }
+}
+?>
 
+<!-- ─── Your no-print block ─── -->
+<div class="no-print mt-4 mb-3 text-right">
+  <form method="GET" class="form-inline mb-3" id="report-filter-form">
+    <label class="mr-2">Patient:</label>
 
-                // Lookup the referring doctor’s name
-                $referrerName = 'N/A';
-                if (! empty($referred_by_id)) {
-                    $d = $conn->prepare("SELECT name FROM doctors WHERE doctor_id = ?");
-                    $d->bind_param("i", $referred_by_id);
-                    $d->execute();
-                    $dname = $d->get_result()->fetch_assoc()['name'] ?? null;
-                    $d->close();
-                    if ($dname) {
-                        $referrerName = htmlspecialchars($dname);
-                    }
-                }
-                ?>
+    <!-- Single search box with datalist -->
+    <input
+      type="text"
+      id="patientSearch"
+      class="form-control mr-2"
+      placeholder="Type name or ID…"
+      list="patientList"
+      autocomplete="off"
+      style="min-width:250px;"
+      value="<?= htmlspecialchars($selectedPatientText) ?>"
+    />
+    <datalist id="patientList">
+      <?php
+      $pList = $conn->query("SELECT patient_id, name FROM patients ORDER BY name");
+      while ($p = $pList->fetch_assoc()) {
+          // option value is “Name (ID: 123)”, data-id holds the actual ID
+          $disp = htmlspecialchars($p['name'] . " (ID: {$p['patient_id']})");
+          echo "<option data-id='{$p['patient_id']}' value='{$disp}'></option>";
+      }
+      ?>
+    </datalist>
 
-                <div class="mb-3">
-                    <span class="badge badge-dark">📄 Report Status: <?= ucfirst($gstatus ?? 'Not Ready') ?></span>
-                    <span class="badge badge-success">✅ Finalization: <?= ucfirst($fstatus ?? 'Not Finalized') ?></span>
-                </div>
-                <?php if ($gstatus === 'generated'): ?>
-                    <button class="btn btn-danger ml-2" onclick="unlockReport()">🔓 Unlock Report</button>
-                <?php endif; ?>
+    <!-- hidden field to carry the numeric patient_id -->
+    <input
+      type="hidden"
+      id="patient_id"
+      name="patient_id"
+      value="<?= htmlspecialchars($_GET['patient_id'] ?? '') ?>"
+    />
 
-                <button class="btn btn-info" onclick="downloadPDF()">⬇ Download PDF</button>
-                <button class="btn btn-primary ml-2" onclick="printReport()">🖨 Print</button>
-            <?php endif; ?>
-        </div>
+    <?php if (!empty($_GET['patient_id'])): ?>
+      <label class="ml-3 mr-2">Visit:</label>
+      <select name="billing_id" class="form-control" onchange="this.form.submit()">
+        <option value="">-- Select Visit --</option>
+        <?php
+        $visits = $conn->prepare("
+          SELECT billing_id, billing_date
+            FROM billing
+           WHERE patient_id = ?
+        ORDER BY billing_date DESC
+        ");
+        $visits->bind_param("i", $_GET['patient_id']);
+        $visits->execute();
+        $result = $visits->get_result();
+        while ($v = $result->fetch_assoc()) {
+            $sel = ($v['billing_id'] == ($_GET['billing_id'] ?? '')) ? ' selected' : '';
+            $label = "Visit #{$v['billing_id']} – " . date('d M Y', strtotime($v['billing_date']));
+            echo "<option value='{$v['billing_id']}'{$sel}>{$label}</option>";
+        }
+        $visits->close();
+        ?>
+      </select>
+    <?php endif; ?>
+  </form>
+
+  <?php if (!empty($patient) && !empty($billing_id)): ?>
+    <?php
+    // Fetch statuses & referring doctor...
+    $status_stmt = $conn->prepare("
+      SELECT fstatus, gstatus, referred_by
+        FROM billing
+       WHERE billing_id = ?
+    ");
+    $status_stmt->bind_param("i", $billing_id);
+    $status_stmt->execute();
+    $status_stmt->bind_result($fstatus, $gstatus, $referred_by_id);
+    $status_stmt->fetch();
+    $status_stmt->close();
+
+    $referrerName = 'N/A';
+    if ($referred_by_id) {
+      $d = $conn->prepare("SELECT name FROM doctors WHERE doctor_id = ?");
+      $d->bind_param("i", $referred_by_id);
+      $d->execute();
+      $tmp = $d->get_result()->fetch_assoc();
+      $d->close();
+      if (!empty($tmp['name'])) {
+        $referrerName = htmlspecialchars($tmp['name']);
+      }
+    }
+    ?>
+    <div class="mb-3">
+      <span class="badge badge-dark">
+        📄 Report Status: <?= ucfirst($gstatus ?? 'Not Ready') ?>
+      </span>
+      <span class="badge badge-success">
+        ✅ Finalization: <?= ucfirst($fstatus ?? 'Not Finalized') ?>
+      </span>
+    </div>
+    <?php if ($gstatus === 'generated'): ?>
+      <button class="btn btn-danger ml-2" onclick="unlockReport()">🔓 Unlock Report</button>
+    <?php endif; ?>
+
+    <button class="btn btn-info" onclick="downloadPDF()">⬇ Download PDF</button>
+    <button class="btn btn-primary ml-2" onclick="printReport()">🖨 Print</button>
+  <?php endif; ?>
+</div>
+
+<script>
+// When you pick a suggestion from the datalist...
+document.getElementById('patientSearch').addEventListener('input', function() {
+  const val = this.value;
+  const opts = document.getElementById('patientList').options;
+  for (let i = 0; i < opts.length; i++) {
+    if (opts[i].value === val) {
+      // set hidden ID, then submit
+      document.getElementById('patient_id').value = opts[i].dataset.id;
+      document.getElementById('report-filter-form').submit();
+      break;
+    }
+  }
+});
+</script>
+
 
 <div id="print-area">
     <?php if ($patient && $billing_id): ?>
