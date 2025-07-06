@@ -215,3 +215,5 @@
         .report-chunk {
             page-break-after: always;
         }
+
+        /* A little pill-style badge for “Payment Due” */

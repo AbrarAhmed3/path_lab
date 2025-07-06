@@ -10,6 +10,37 @@ include 'db.php';
 $patient_id = isset($_GET['patient_id']) ? intval($_GET['patient_id']) : null;
 $billing_id = isset($_GET['billing_id']) ? intval($_GET['billing_id']) : null;
 
+
+// ─────────────────────────────────────────────────
+// Payment-Due Banner
+// ─────────────────────────────────────────────────
+if ($billing_id) {
+    $stmt = $conn->prepare("
+        SELECT bstatus
+          FROM billing
+         WHERE billing_id = ?
+         LIMIT 1
+    ");
+    $stmt->bind_param("i", $billing_id);
+    $stmt->execute();
+    $brow = $stmt->get_result()->fetch_assoc() ?? [];
+    $stmt->close();
+
+    if (strtolower($brow['bstatus'] ?? '') !== 'paid') {
+        echo "
+          <div class='alert alert-warning d-flex align-items-center my-4' role='alert'>
+            <i class='fas fa-exclamation-triangle mr-2'></i>
+            <div>
+              <strong>Payment Due:</strong> Please pay the bill to generate the report.
+            </div>
+          </div>
+        ";
+        // If you want to block rendering the rest of the report, uncomment the next line:
+        // exit;
+    }
+}
+
+
 $patient = null;
 $results_by_department = [];
 
@@ -359,6 +390,7 @@ if (!empty($_GET['patient_id'])) {
     }
 }
 ?>
+
 
 <!-- ─── Your no-print block ─── -->
 <div class="no-print mt-4 mb-3 text-right">

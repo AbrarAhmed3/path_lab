@@ -22,8 +22,8 @@ if (!empty($_GET['patient_id'])) {
     $stmt_sp->close();
 }
 
-$patient_id   = $_GET['patient_id'] ?? null;
-$billing_id   = $_GET['billing_id'] ?? null;
+$patient_id   = $_GET['patient_id']   ?? null;
+$billing_id   = $_GET['billing_id']   ?? null;
 
 $patient        = null;
 $tests_array    = [];
@@ -41,9 +41,9 @@ if ($patient_id) {
     // 1) If a billing_id was provided, verify it belongs to this patient
     if ($billing_id) {
         $stmt = $conn->prepare("
-            SELECT * 
-              FROM billing 
-             WHERE billing_id = ? 
+            SELECT *  
+              FROM billing  
+             WHERE billing_id = ?  
                AND patient_id = ?
         ");
         $stmt->bind_param("ii", $billing_id, $patient_id);
@@ -60,11 +60,11 @@ if ($patient_id) {
     // 2) If no valid billing_id, grab the most recent pending bill
     if (!$billing_id) {
         $stmt = $conn->prepare("
-            SELECT * 
-              FROM billing 
-             WHERE patient_id = ? 
-               AND bstatus = 'pending' 
-          ORDER BY billing_id DESC 
+            SELECT *  
+              FROM billing  
+             WHERE patient_id = ?  
+               AND bstatus = 'pending'  
+          ORDER BY billing_id DESC  
              LIMIT 1
         ");
         $stmt->bind_param("i", $patient_id);
@@ -91,12 +91,27 @@ if ($patient_id) {
         $recalculated_total = $row['total'] ?? 0;
         $stmt->close();
 
-        // 3b) Balance & status
+        // 3b) Balance & status (preserve 'pending' if no assignments)
         $discount = floatval($active_billing['discount']);
         $paid     = floatval($active_billing['paid_amount']);
         $net      = max($recalculated_total - $discount, 0);
         $balance  = max($net - $paid, 0);
-        $bstatus  = ($balance <= 0) ? 'paid' : 'assigned';
+
+        // Count how many tests are assigned
+        $countStmt = $conn->prepare("SELECT COUNT(*) AS cnt FROM test_assignments WHERE billing_id = ?");
+        $countStmt->bind_param("i", $billing_id);
+        $countStmt->execute();
+        $countRow = $countStmt->get_result()->fetch_assoc();
+        $assignmentCount = $countRow['cnt'] ?? 0;
+        $countStmt->close();
+
+        if ($assignmentCount === 0) {
+            // No tests yet: keep the existing status (likely 'pending')
+            $bstatus = $active_billing['bstatus'];
+        } else {
+            // Determine status based on balance
+            $bstatus = ($balance <= 0) ? 'paid' : 'assigned';
+        }
 
         // 3c) Persist if changed
         if (
