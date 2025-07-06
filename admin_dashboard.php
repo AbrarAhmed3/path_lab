@@ -24,7 +24,7 @@ $pending_reports = $conn->query("
 
 
 $pending_bills = $conn->query("
-    SELECT b.billing_id, b.patient_id, p.name, b.total_amount, b.paid_amount 
+    SELECT b.billing_id, b.patient_id, p.name, b.total_amount, b.paid_amount , b.discount
     FROM billing b 
     JOIN patients p ON b.patient_id = p.patient_id 
     WHERE b.balance_amount != 0 
@@ -32,15 +32,50 @@ $pending_bills = $conn->query("
 ");
 
 
+// $pending_tests = $conn->query("
+//     SELECT a.assignment_id, a.patient_id, a.billing_id, p.name, t.name as test_name
+//     FROM test_assignments a
+//     LEFT JOIN test_results r ON a.assignment_id = r.assignment_id
+//     JOIN patients p ON a.patient_id = p.patient_id
+//     JOIN tests t ON a.test_id = t.test_id
+//     WHERE r.assignment_id IS NULL
+//     LIMIT 100
+// ");
+
+// only assignments with no result AND whose billing.rstatus != 'complete'
 $pending_tests = $conn->query("
-    SELECT a.assignment_id, a.patient_id, a.billing_id, p.name, t.name as test_name
+    SELECT 
+      a.assignment_id, 
+      a.patient_id, 
+      a.billing_id, 
+      p.name, 
+      t.name AS test_name
     FROM test_assignments a
-    LEFT JOIN test_results r ON a.assignment_id = r.assignment_id
-    JOIN patients p ON a.patient_id = p.patient_id
-    JOIN tests t ON a.test_id = t.test_id
+    LEFT JOIN test_results r 
+      ON a.assignment_id = r.assignment_id
+    JOIN billing b 
+      ON a.billing_id = b.billing_id
+    JOIN patients p 
+      ON a.patient_id = p.patient_id
+    JOIN tests t 
+      ON a.test_id = t.test_id
     WHERE r.assignment_id IS NULL
+      AND b.rstatus != 'complete'
     LIMIT 100
 ");
+
+$pending_tests_count = $conn->query("
+    SELECT 
+      COUNT(*) 
+    FROM test_assignments a
+    LEFT JOIN test_results r 
+      ON a.assignment_id = r.assignment_id
+    JOIN billing b 
+      ON a.billing_id = b.billing_id
+    WHERE r.assignment_id IS NULL
+      AND b.rstatus != 'complete'
+")->fetch_row()[0];
+
 
 
 
@@ -50,7 +85,7 @@ $pending_bills_count = $conn->query("
     SELECT COUNT(*) FROM billing WHERE balance_amount != 0
 ")->fetch_row()[0];
 
-$pending_tests_count = $conn->query("SELECT COUNT(*) FROM test_assignments a LEFT JOIN test_results r ON a.assignment_id = r.assignment_id WHERE r.assignment_id IS NULL")->fetch_row()[0];
+// $pending_tests_count = $conn->query("SELECT COUNT(*) FROM test_assignments a LEFT JOIN test_results r ON a.assignment_id = r.assignment_id WHERE r.assignment_id IS NULL")->fetch_row()[0];
 
 $currentPage = basename(__FILE__);
 include 'admin_header.php';
@@ -221,7 +256,7 @@ include 'admin_header.php';
                     <?php while ($b = $pending_bills->fetch_assoc()): ?>
                         <tr>
                             <td><?= htmlspecialchars($b['name']) ?></td>
-                            <td>₹ <?= number_format($b['total_amount'] - $b['paid_amount'], 2) ?></td>
+                            <td>₹ <?= number_format(($b['total_amount']+$b['discount']) - $b['paid_amount'], 2) ?></td>
                             <td>
                                 <a href="billing.php?patient_id=<?= $b['patient_id'] ?>&billing_id=<?= $b['billing_id'] ?>"
                                     class="btn btn-outline-warning btn-sm">
