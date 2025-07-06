@@ -5,139 +5,172 @@ if (!isset($_SESSION['admin_logged_in'])) {
     header('Location: admin_login.php');
     exit();
 }
+
 include 'db.php';
 include 'admin_header.php';
 
-$patient_id = $_GET['patient_id'] ?? null;
-$billing_id = $_GET['billing_id'] ?? null;
+// ─── Preload selected patient display text for the search UI ───
+$selectedPatientText = '';
+if (!empty($_GET['patient_id'])) {
+    $pid = (int)$_GET['patient_id'];
+    $stmt_sp = $conn->prepare("SELECT name FROM patients WHERE patient_id = ?");
+    $stmt_sp->bind_param("i", $pid);
+    $stmt_sp->execute();
+    if ($row_sp = $stmt_sp->get_result()->fetch_assoc()) {
+        $selectedPatientText = $row_sp['name'] . " (ID: {$pid})";
+    }
+    $stmt_sp->close();
+}
 
-$patient = null;
-$tests_array = [];
-$total_amount = 0;
+$patient_id   = $_GET['patient_id'] ?? null;
+$billing_id   = $_GET['billing_id'] ?? null;
+
+$patient        = null;
+$tests_array    = [];
+$total_amount   = 0;
 $active_billing = null;
 
 if ($patient_id) {
+    // 0) Fetch patient record
     $stmt = $conn->prepare("SELECT * FROM patients WHERE patient_id = ?");
     $stmt->bind_param("i", $patient_id);
     $stmt->execute();
     $patient = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
+    // 1) If a billing_id was provided, verify it belongs to this patient
     if ($billing_id) {
-        $stmt = $conn->prepare("SELECT * FROM billing WHERE billing_id = ?");
-        $stmt->bind_param("i", $billing_id);
+        $stmt = $conn->prepare("
+            SELECT * 
+              FROM billing 
+             WHERE billing_id = ? 
+               AND patient_id = ?
+        ");
+        $stmt->bind_param("ii", $billing_id, $patient_id);
         $stmt->execute();
         $active_billing = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-    } else {
-        // use bstatus, not status
-        $stmt = $conn->prepare("
-  SELECT * 
-    FROM billing 
-   WHERE patient_id = ? 
-     AND bstatus = 'pending' 
-ORDER BY billing_id DESC 
-   LIMIT 1
-");
 
+        // If it didn’t match, clear it so we fall back to pending
+        if (!$active_billing) {
+            $billing_id = null;
+        }
+    }
+
+    // 2) If no valid billing_id, grab the most recent pending bill
+    if (!$billing_id) {
+        $stmt = $conn->prepare("
+            SELECT * 
+              FROM billing 
+             WHERE patient_id = ? 
+               AND bstatus = 'pending' 
+          ORDER BY billing_id DESC 
+             LIMIT 1
+        ");
         $stmt->bind_param("i", $patient_id);
         $stmt->execute();
         $active_billing = $stmt->get_result()->fetch_assoc();
         $stmt->close();
-        if ($active_billing) $billing_id = $active_billing['billing_id'];
+        if ($active_billing) {
+            $billing_id = $active_billing['billing_id'];
+        }
     }
 
+    // 3) If we now have an active billing, recalculate totals & load tests
     if ($active_billing) {
-
-        if ($active_billing && $billing_id) {
-            // 1. Recalculate subtotal from test_assignments
-            $recalculated_total = 0;
-            $stmt = $conn->prepare("SELECT SUM(t.price) as total FROM test_assignments ta JOIN tests t ON ta.test_id = t.test_id WHERE ta.billing_id = ?");
-            $stmt->bind_param("i", $billing_id);
-            $stmt->execute();
-            $result = $stmt->get_result();
-            $row = $result->fetch_assoc();
-            $recalculated_total = $row['total'] ?? 0;
-            $stmt->close();
-
-            // 2. Recalculate balance
-            $discount = floatval($active_billing['discount']);
-            $paid = floatval($active_billing['paid_amount']);
-            $net = max($recalculated_total - $discount, 0);
-            $balance = max($net - $paid, 0);
-            $bstatus = ($balance <= 0) ? 'paid' : 'assigned';
-
-            // 3. Update DB if total/balance differs from stored
-            if (
-                abs($recalculated_total - floatval($active_billing['total_amount'])) > 0.01 ||
-                abs($balance - floatval($active_billing['balance_amount'])) > 0.01 ||
-                $bstatus !== $active_billing['bstatus']
-            ) {
-                $stmt = $conn->prepare("UPDATE billing SET total_amount=?, balance_amount=?, bstatus=? WHERE billing_id=?");
-                $stmt->bind_param("ddsi", $recalculated_total, $balance, $bstatus, $billing_id);
-                $stmt->execute();
-                $stmt->close();
-
-                // Refresh active_billing with latest
-                $stmt = $conn->prepare("SELECT * FROM billing WHERE billing_id = ?");
-                $stmt->bind_param("i", $billing_id);
-                $stmt->execute();
-                $active_billing = $stmt->get_result()->fetch_assoc();
-                $stmt->close();
-            }
-
-            // 4. Update total_amount to match this calculated one
-            $total_amount = $recalculated_total;
-        }
-
-        // For Lab Copy: individual test names + category
-        $tests_array = [];
+        // 3a) Subtotal
         $stmt = $conn->prepare("
-  SELECT 
-    t.name       AS test_name,
-    t.price      AS price,
-    COALESCE(tc.category_name,'Uncategorized') AS category_name
-  FROM test_assignments ta
-  JOIN tests t ON ta.test_id = t.test_id
-  LEFT JOIN test_categories tc ON ta.category_id = tc.category_id
-  WHERE ta.billing_id = ?
-  ORDER BY tc.category_name, t.name
-");
-
+            SELECT SUM(t.price) AS total
+              FROM test_assignments ta
+              JOIN tests t ON ta.test_id = t.test_id
+             WHERE ta.billing_id = ?
+        ");
         $stmt->bind_param("i", $billing_id);
         $stmt->execute();
-        $result = $stmt->get_result();
-        while ($row = $result->fetch_assoc()) {
-            $tests_array[] = $row;
+        $row = $stmt->get_result()->fetch_assoc();
+        $recalculated_total = $row['total'] ?? 0;
+        $stmt->close();
+
+        // 3b) Balance & status
+        $discount = floatval($active_billing['discount']);
+        $paid     = floatval($active_billing['paid_amount']);
+        $net      = max($recalculated_total - $discount, 0);
+        $balance  = max($net - $paid, 0);
+        $bstatus  = ($balance <= 0) ? 'paid' : 'assigned';
+
+        // 3c) Persist if changed
+        if (
+            abs($recalculated_total - floatval($active_billing['total_amount'])) > 0.01 ||
+            abs($balance            - floatval($active_billing['balance_amount'])) > 0.01 ||
+            $bstatus              !== $active_billing['bstatus']
+        ) {
+            $upd = $conn->prepare("
+                UPDATE billing
+                   SET total_amount   = ?,
+                       balance_amount = ?,
+                       bstatus        = ?
+                 WHERE billing_id     = ?
+            ");
+            $upd->bind_param("ddsi", $recalculated_total, $balance, $bstatus, $billing_id);
+            $upd->execute();
+            $upd->close();
+
+            // Refresh
+            $ref = $conn->prepare("SELECT * FROM billing WHERE billing_id = ?");
+            $ref->bind_param("i", $billing_id);
+            $ref->execute();
+            $active_billing = $ref->get_result()->fetch_assoc();
+            $ref->close();
+        }
+
+        $total_amount = $recalculated_total;
+
+        // 3d) Load assigned tests
+        $stmt = $conn->prepare("
+            SELECT 
+                t.name       AS test_name,
+                t.price,
+                COALESCE(tc.category_name,'Uncategorized') AS category_name
+              FROM test_assignments ta
+              JOIN tests t ON ta.test_id = t.test_id
+         LEFT JOIN test_categories tc ON ta.category_id = tc.category_id
+             WHERE ta.billing_id = ?
+          ORDER BY tc.category_name, t.name
+        ");
+        $stmt->bind_param("i", $billing_id);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $tests_array[] = $r;
         }
         $stmt->close();
 
-
-        // 2. Get grouped totals by category (for invoice)
+        // 3e) Category totals
         $stmt = $conn->prepare("
-        SELECT 
-            COALESCE(c.category_name, 'Uncategorized') AS category_name, 
-            SUM(t.price) AS total_price
-        FROM test_assignments ta
-        JOIN tests t ON ta.test_id = t.test_id
-        LEFT JOIN test_categories c ON t.category_id = c.category_id
-        WHERE ta.billing_id = ?
-        GROUP BY c.category_id
-    ");
+            SELECT 
+                COALESCE(c.category_name,'Uncategorized') AS category_name,
+                SUM(t.price) AS total_price
+              FROM test_assignments ta
+              JOIN tests t ON ta.test_id = t.test_id
+         LEFT JOIN test_categories c ON t.category_id = c.category_id
+             WHERE ta.billing_id = ?
+          GROUP BY c.category_id
+        ");
         $stmt->bind_param("i", $billing_id);
         $stmt->execute();
-        $result = $stmt->get_result();
         $category_totals = [];
-        while ($row = $result->fetch_assoc()) {
-            $category_totals[] = $row;
+        $res = $stmt->get_result();
+        while ($r = $res->fetch_assoc()) {
+            $category_totals[] = $r;
         }
         $stmt->close();
 
-        // Calculate total amount from category_totals
-        $total_amount = 0;
-        foreach ($category_totals as $row) {
-            $total_amount += $row['total_price'];
-        }
+        // Recompute overall total from categories
+        $total_amount = array_reduce(
+            $category_totals,
+            fn($sum, $row) => $sum + $row['total_price'],
+            0
+        );
     }
 }
 
@@ -245,9 +278,8 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link
-  href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
-  rel="stylesheet"
-/>
+        href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+        rel="stylesheet" />
 
     <style>
         .badge-draft {
@@ -272,66 +304,79 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                 <h4 class="mb-0">🧾 Patient Billing</h4>
             </div>
             <div class="card-body">
-                <form class="form-inline mb-4" method="GET">
+                <form id="billing-filter-form" class="form-inline mb-4" method="GET">
   <label class="mr-2 font-weight-bold">Select Patient</label>
-  <select
-      name="patient_id"
-      id="patient_select"
-      class="form-control mr-2"
-  >
-    <option></option><!-- allowClear needs an empty option -->
+
+  <!-- Live‐search input -->
+  <input
+    type="text"
+    id="patientSearchBilling"
+    class="form-control mr-2"
+    placeholder="Type name or ID…"
+    list="billingPatientList"
+    autocomplete="off"
+    style="min-width:250px;"
+    value="<?= htmlspecialchars($selectedPatientText) ?>"
+  />
+
+  <!-- Datalist of all patients -->
+  <datalist id="billingPatientList">
     <?php
-    $patients = $conn->query("SELECT patient_id, name FROM patients ORDER BY name ASC");
-    while ($p = $patients->fetch_assoc()):
+      $patients = $conn->query("SELECT patient_id, name FROM patients ORDER BY name ASC");
+      while ($p = $patients->fetch_assoc()) {
+          $disp = htmlspecialchars($p['name'] . " (ID: {$p['patient_id']})");
+          echo "<option data-id='{$p['patient_id']}' value='{$disp}'></option>";
+      }
     ?>
-      <option
-        value="<?= $p['patient_id'] ?>"
-        <?= ($patient_id == $p['patient_id']) ? 'selected' : '' ?>
-      >
-        <?= htmlspecialchars($p['name']) ?> (ID: <?= $p['patient_id'] ?>)
-      </option>
-    <?php endwhile; ?>
-  </select>
+  </datalist>
+
+  <!-- Hidden carries the numeric patient_id -->
+  <input
+    type="hidden"
+    id="patient_id_billing"
+    name="patient_id"
+    value="<?= htmlspecialchars($_GET['patient_id'] ?? '') ?>"
+  />
 </form>
 
 
 
-                <?php if ($patient): ?>
-  <div class="form-group mb-3">
-    <label><strong>📜 All Bills</strong></label>
-    <select onchange="window.location.href=this.value" class="form-control">
-      <option value="">-- Select Bill --</option>
-      <?php
-        // pull in bstatus instead of the unused status field
-        $bills = $conn->query("
-          SELECT billing_id,
-                 billing_date,
-                 bstatus
-            FROM billing
-           WHERE patient_id = $patient_id
-        ORDER BY billing_date DESC
-        ");
 
-        while ($b = $bills->fetch_assoc()):
-          // pick an emoji per bstatus
-          $icon = match ($b['bstatus']) {
-            'pending'  => '🟡',
-            'assigned' => '🧪',
-            'paid'     => '✅',
-            'printed'  => '🖨️',
-            default    => '❓',
-          };
-      ?>
-        <option
-          value="billing.php?patient_id=<?= $patient_id ?>&billing_id=<?= $b['billing_id'] ?>"
-          <?= ($billing_id == $b['billing_id']) ? 'selected' : '' ?>
-        >
-          <?= $icon ?> Bill #<?= $b['billing_id'] ?> (<?= date('d-m-Y', strtotime($b['billing_date'])) ?>)
-        </option>
-      <?php endwhile; ?>
-    </select>
-  </div>
-<?php endif; ?>
+                <?php if ($patient): ?>
+                    <div class="form-group mb-3">
+                        <label><strong>📜 All Bills</strong></label>
+                        <select onchange="window.location.href=this.value" class="form-control">
+                            <option value="">-- Select Bill --</option>
+                            <?php
+                            // pull in bstatus instead of the unused status field
+                            $bills = $conn->query("
+                            SELECT billing_id,
+                            billing_date,
+                            bstatus
+                            FROM billing
+                            WHERE patient_id = $patient_id
+                            ORDER BY billing_date DESC
+                            ");
+
+                            while ($b = $bills->fetch_assoc()):
+                                // pick an emoji per bstatus
+                                $icon = match ($b['bstatus']) {
+                                    'pending'  => '🟡',
+                                    'assigned' => '🧪',
+                                    'paid'     => '✅',
+                                    'printed'  => '🖨️',
+                                    default    => '❓',
+                                };
+                            ?>
+                                <option
+                                    value="billing.php?patient_id=<?= $patient_id ?>&billing_id=<?= $b['billing_id'] ?>"
+                                    <?= ($billing_id == $b['billing_id']) ? 'selected' : '' ?>>
+                                    <?= $icon ?> Bill #<?= $b['billing_id'] ?> (<?= date('d-m-Y', strtotime($b['billing_date'])) ?>)
+                                </option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+                <?php endif; ?>
 
 
                 <?php if ($active_billing): ?>
@@ -489,12 +534,12 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
 
 
                             <?php if ($active_billing['paid_amount'] > 0 && $active_billing['balance_amount'] > 0): ?>
-  <form method="POST" class="form-inline">
-    <input type="hidden" name="pay_due" value="1">
-    <input type="number" name="due_amount" class="form-control mr-2" step="0.01" required placeholder="Pay Due">
-    <button class="btn btn-warning">💳 Pay Due</button>
-  </form>
-<?php endif; ?>
+                                <form method="POST" class="form-inline">
+                                    <input type="hidden" name="pay_due" value="1">
+                                    <input type="number" name="due_amount" class="form-control mr-2" step="0.01" required placeholder="Pay Due">
+                                    <button class="btn btn-warning">💳 Pay Due</button>
+                                </form>
+                            <?php endif; ?>
 
 
                             <div class="mt-3">
@@ -644,213 +689,218 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
             <div style="clear:both;"></div>
 
             <!-- Footer -->
-      
+
         </div>
-                        <!-- Existing thank-you line -->
-    <p style="text-align:center; font-size:11px; margin:0;">
-      Thank you for choosing <strong><?= htmlspecialchars($lab_settings['lab_name']) ?></strong>. We value your trust.
-    </p>
+        <!-- Existing thank-you line -->
+        <p style="text-align:center; font-size:11px; margin:0;">
+            Thank you for choosing <strong><?= htmlspecialchars($lab_settings['lab_name']) ?></strong>. We value your trust.
+        </p>
 
-    <!-- 👇 Your new footer note 👇 -->
-    <div style="text-align:center; font-size:10px; margin-top:8px; color:#555;">
-      <em>Please keep this invoice for your records. For any questions, call <?= htmlspecialchars($lab_settings['phone']) ?>.</em>
+        <!-- 👇 Your new footer note 👇 -->
+        <div style="text-align:center; font-size:10px; margin-top:8px; color:#555;">
+            <em>Please keep this invoice for your records. For any questions, call <?= htmlspecialchars($lab_settings['phone']) ?>.</em>
+        </div>
     </div>
-    </div>
 
 
-<!-- Lab Copy -->
-<div id="lab-copy" style="display:none; font-size:12px; font-family:'Segoe UI', Tahoma, sans-serif;">
+    <!-- Lab Copy -->
+    <div id="lab-copy" style="display:none; font-size:12px; font-family:'Segoe UI', Tahoma, sans-serif;">
 
-  <!-- Header -->
-  <div style="text-align:center; margin-bottom:10px;">
-    <h2 style="margin:0;"><?= strtoupper($lab_settings['lab_name']) ?></h2>
-    <div style="font-size:10px; line-height:1.2;">
-      <?= htmlspecialchars($lab_settings['address_line1'] . ' ' . $lab_settings['address_line2']) ?>,
-      <?= htmlspecialchars($lab_settings['city']) ?>, <?= htmlspecialchars($lab_settings['state']) ?>
-      - <?= htmlspecialchars($lab_settings['pincode']) ?><br>
-      Phone: <?= htmlspecialchars($lab_settings['phone']) ?> |
-      Email: <?= htmlspecialchars($lab_settings['email']) ?>
-    </div>
-    <hr style="margin:8px 0; border-top:1px solid #000;">
-    <div style="font-weight:bold; margin-bottom:8px;">🧪 LAB COPY</div>
-  </div>
+        <!-- Header -->
+        <div style="text-align:center; margin-bottom:10px;">
+            <h2 style="margin:0;"><?= strtoupper($lab_settings['lab_name']) ?></h2>
+            <div style="font-size:10px; line-height:1.2;">
+                <?= htmlspecialchars($lab_settings['address_line1'] . ' ' . $lab_settings['address_line2']) ?>,
+                <?= htmlspecialchars($lab_settings['city']) ?>, <?= htmlspecialchars($lab_settings['state']) ?>
+                - <?= htmlspecialchars($lab_settings['pincode']) ?><br>
+                Phone: <?= htmlspecialchars($lab_settings['phone']) ?> |
+                Email: <?= htmlspecialchars($lab_settings['email']) ?>
+            </div>
+            <hr style="margin:8px 0; border-top:1px solid #000;">
+            <div style="font-weight:bold; margin-bottom:8px;">🧪 LAB COPY</div>
+        </div>
 
-  <!-- Patient + Bill Info -->
-  <table style="width:100%; margin-bottom:12px; font-size:12px;">
-    <tr>
-      <td><strong>Name:</strong> <?= htmlspecialchars($patient['name']) ?></td>
-      <td style="text-align:right;"><strong>Bill ID:</strong> <?= 'HDC_' . $active_billing['billing_id'] ?></td>
-    </tr>
-    <tr>
-      <td><strong>Age/Sex:</strong> <?= htmlspecialchars($patient['age'].' / '.ucfirst($patient['gender'])) ?></td>
-      <td style="text-align:right;"><strong>Date:</strong> <?= date('d-m-Y',strtotime($active_billing['billing_date'])) ?></td>
-    </tr>
-  </table>
+        <!-- Patient + Bill Info -->
+        <table style="width:100%; margin-bottom:12px; font-size:12px;">
+            <tr>
+                <td><strong>Name:</strong> <?= htmlspecialchars($patient['name']) ?></td>
+                <td style="text-align:right;"><strong>Bill ID:</strong> <?= 'HDC_' . $active_billing['billing_id'] ?></td>
+            </tr>
+            <tr>
+                <td><strong>Age/Sex:</strong> <?= htmlspecialchars($patient['age'] . ' / ' . ucfirst($patient['gender'])) ?></td>
+                <td style="text-align:right;"><strong>Date:</strong> <?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?></td>
+            </tr>
+        </table>
 
-  <?php
-    // group tests by category
-    $grouped = [];
-    foreach ($tests_array as $t) {
-      $grouped[$t['category_name']][] = $t['test_name'];
-    }
-  ?>
+        <?php
+        // group tests by category
+        $grouped = [];
+        foreach ($tests_array as $t) {
+            $grouped[$t['category_name']][] = $t['test_name'];
+        }
+        ?>
 
-  <?php foreach ($grouped as $category => $tests): ?>
-    <!-- Category Heading -->
-    <h5 style="margin:12px 0 4px;"><?= htmlspecialchars($category) ?></h5>
+        <?php foreach ($grouped as $category => $tests): ?>
+            <!-- Category Heading -->
+            <h5 style="margin:12px 0 4px;"><?= htmlspecialchars($category) ?></h5>
 
-    <!-- Test / Result Table -->
-    <table 
-      style="
+            <!-- Test / Result Table -->
+            <table
+                style="
         width:100%;
         border-collapse:collapse;
         margin-bottom:16px;
         font-size:12px;
       "
-      border="1"
-      cellpadding="4"
-      cellspacing="0"
-    >
-      <thead>
-        <tr style="background:#f0f0f0;">
-          <th style="width:70%; text-align:left;">Test Name</th>
-          <th style="width:30%; text-align:left;">Result</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php foreach ($tests as $name): ?>
-          <tr>
-            <td><?= htmlspecialchars($name) ?></td>
-            <td style="height:32px;"></td>
-          </tr>
+                border="1"
+                cellpadding="4"
+                cellspacing="0">
+                <thead>
+                    <tr style="background:#f0f0f0;">
+                        <th style="width:70%; text-align:left;">Test Name</th>
+                        <th style="width:30%; text-align:left;">Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($tests as $name): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($name) ?></td>
+                            <td style="height:32px;"></td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+
+            <!-- Machine Used Line -->
+            <div style="font-size:12px; margin-bottom:8px;">
+                <strong>Machine Used:</strong> _____________________________
+            </div>
         <?php endforeach; ?>
-      </tbody>
-    </table>
 
-    <!-- Machine Used Line -->
-    <div style="font-size:12px; margin-bottom:8px;">
-      <strong>Machine Used:</strong> _____________________________
+        <!-- Signature -->
+        <div style="text-align:right; margin-top:20px; font-size:12px;">
+            <em>Authorized Signature: _____________________________</em>
+        </div>
     </div>
-  <?php endforeach; ?>
-
-  <!-- Signature -->
-  <div style="text-align:right; margin-top:20px; font-size:12px;">
-    <em>Authorized Signature: _____________________________</em>
-  </div>
-</div>
 
 
 
 
-            <script>
-                document.getElementById('discount_type')
-                    .addEventListener('change', function() {
-                        const lbl = document.getElementById('discount_label');
-                        const inp = document.getElementById('discount');
-                        if (this.value === 'percent') {
-                            lbl.textContent = 'Discount (%)';
-                            inp.setAttribute('max', 100);
-                        } else {
-                            lbl.textContent = 'Discount (₹)';
-                            inp.removeAttribute('max');
-                        }
-                    });
-            </script>
-<!-- Discount Calculation -->
-<script>
-document.addEventListener('DOMContentLoaded',function(){
-  const subtotal   = parseFloat('<?= $total_amount ?>');
-  const dtEl       = document.getElementById('discount_type');
-  const discEl     = document.getElementById('discount');
-  const paidEl     = document.getElementById('paid_amount');
-  const subDisp    = document.getElementById('subtotal_display');
-  const discDisp   = document.getElementById('discount_display');
-  const netDisp    = document.getElementById('net_display');
-  const paidDisp   = document.getElementById('paid_display');
-  const dueDisp    = document.getElementById('due_display');
+    <script>
+        document.getElementById('discount_type')
+            .addEventListener('change', function() {
+                const lbl = document.getElementById('discount_label');
+                const inp = document.getElementById('discount');
+                if (this.value === 'percent') {
+                    lbl.textContent = 'Discount (%)';
+                    inp.setAttribute('max', 100);
+                } else {
+                    lbl.textContent = 'Discount (₹)';
+                    inp.removeAttribute('max');
+                }
+            });
+    </script>
+    <!-- Discount Calculation -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const subtotal = parseFloat('<?= $total_amount ?>');
+            const dtEl = document.getElementById('discount_type');
+            const discEl = document.getElementById('discount');
+            const paidEl = document.getElementById('paid_amount');
+            const subDisp = document.getElementById('subtotal_display');
+            const discDisp = document.getElementById('discount_display');
+            const netDisp = document.getElementById('net_display');
+            const paidDisp = document.getElementById('paid_display');
+            const dueDisp = document.getElementById('due_display');
 
-  function fmt(x){ return '₹ '+ x.toFixed(2) }
-  function update() {
-    let entered = parseFloat(discEl.value)||0;
-    let discAmt = dtEl.value==='percent'
-      ? Math.min(Math.max(entered,0),100)/100 * subtotal
-      : Math.min(Math.max(entered,0),subtotal);
-    let paidAmt = Math.min(Math.max(parseFloat(paidEl.value)||0,0),subtotal-discAmt);
-    let net     = subtotal - discAmt;
-    let due     = net - paidAmt;
+            function fmt(x) {
+                return '₹ ' + x.toFixed(2)
+            }
 
-    subDisp.textContent  = fmt(subtotal);
-    discDisp.textContent = '– '+ fmt(discAmt)
-                         + (dtEl.value==='percent'
-                              ? ' ('+((discAmt/subtotal*100)||0).toFixed(1)+'%)'
-                              : '');
-    netDisp.textContent  = fmt(net);
-    paidDisp.textContent = fmt(paidAmt);
-    dueDisp.textContent  = due<=0 ? 'All Paid' : fmt(due);
-  }
+            function update() {
+                let entered = parseFloat(discEl.value) || 0;
+                let discAmt = dtEl.value === 'percent' ?
+                    Math.min(Math.max(entered, 0), 100) / 100 * subtotal :
+                    Math.min(Math.max(entered, 0), subtotal);
+                let paidAmt = Math.min(Math.max(parseFloat(paidEl.value) || 0, 0), subtotal - discAmt);
+                let net = subtotal - discAmt;
+                let due = net - paidAmt;
 
-  dtEl.addEventListener('change', update);
-  discEl.addEventListener('input',  update);
-  paidEl.addEventListener('input',  update);
-  update();
+                subDisp.textContent = fmt(subtotal);
+                discDisp.textContent = '– ' + fmt(discAmt) +
+                    (dtEl.value === 'percent' ?
+                        ' (' + ((discAmt / subtotal * 100) || 0).toFixed(1) + '%)' :
+                        '');
+                netDisp.textContent = fmt(net);
+                paidDisp.textContent = fmt(paidAmt);
+                dueDisp.textContent = due <= 0 ? 'All Paid' : fmt(due);
+            }
+
+            dtEl.addEventListener('change', update);
+            discEl.addEventListener('input', update);
+            paidEl.addEventListener('input', update);
+            update();
+        });
+    </script>
+
+
+    <script>
+        function printInvoice() {
+            const content = document.getElementById('invoice-print').innerHTML;
+            const win = window.open('', '_blank');
+            win.document.write('<html><head><title>Invoice</title></head><body>' + content + '</body></html>');
+            win.document.close();
+            win.focus();
+            win.print();
+            win.close();
+        }
+
+        function printLabCopy() {
+            const content = document.getElementById('lab-copy').innerHTML;
+            const win = window.open('', '_blank');
+            win.document.write('<html><head><title>Lab Copy</title></head><body>' + content + '</body></html>');
+            win.document.close();
+            win.focus();
+            win.print();
+            win.close();
+        }
+    </script>
+
+    <script>
+document
+  .getElementById('patientSearchBilling')
+  .addEventListener('input', function() {
+    const val  = this.value;
+    const opts = document.getElementById('billingPatientList').options;
+    for (let i = 0; i < opts.length; i++) {
+      if (opts[i].value === val) {
+        // set hidden field & submit
+        document.getElementById('patient_id_billing').value = opts[i].dataset.id;
+        document.getElementById('billing-filter-form').submit();
+        break;
+      }
+    }
 });
 </script>
 
 
-            <script>
-                function printInvoice() {
-                    const content = document.getElementById('invoice-print').innerHTML;
-                    const win = window.open('', '_blank');
-                    win.document.write('<html><head><title>Invoice</title></head><body>' + content + '</body></html>');
-                    win.document.close();
-                    win.focus();
-                    win.print();
-                    win.close();
-                }
 
-                function printLabCopy() {
-                    const content = document.getElementById('lab-copy').innerHTML;
-                    const win = window.open('', '_blank');
-                    win.document.write('<html><head><title>Lab Copy</title></head><body>' + content + '</body></html>');
-                    win.document.close();
-                    win.focus();
-                    win.print();
-                    win.close();
-                }
-            </script>
-
-            <script>
-  $(document).ready(function(){
-    $('#patient_select')
-      .select2({
-        placeholder: 'Search patient…',
-        allowClear: true,
-        width: 'style'   // match the original .form-control width
-      })
-      // submit the form as soon as a patient is picked
-      .on('select2:select', function(){
-        this.form.submit();
-      });
-  });
-</script>
-
-
-<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 
 
-            <?php if (isset($_GET['toast']) && $_GET['toast'] == '1'): ?>
-                <script>
-                    Swal.fire({
-                        icon: 'success',
-                        toast: true,
-                        title: 'Billing updated!',
-                        position: 'top-end',
-                        timer: 3000,
-                        showConfirmButton: false
-                    });
-                </script>
-            <?php endif; ?>
+    <?php if (isset($_GET['toast']) && $_GET['toast'] == '1'): ?>
+        <script>
+            Swal.fire({
+                icon: 'success',
+                toast: true,
+                title: 'Billing updated!',
+                position: 'top-end',
+                timer: 3000,
+                showConfirmButton: false
+            });
+        </script>
+    <?php endif; ?>
 </body>
 
 </html>
