@@ -787,7 +787,7 @@ function formatRange($low, $high)
                                     </div>
                                 </div>
                                 <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
-                                    <div><strong>Booking On:</strong> <?= date('d-m-Y', strtotime($booking_on)) ?></div>
+                                    <div><strong>Patient Id:</strong> <?= 'HPI_' . $patient_id ?><br><strong>Booking On:</strong> <?= date('d-m-Y', strtotime($booking_on)) ?></div>
                                     <div><strong>Generated On:</strong>
                                         <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
                                     </div>
