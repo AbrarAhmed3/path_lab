@@ -66,12 +66,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         <div class="form-group">
             <label>Unit</label>
-            <input type="text" name="unit" class="form-control" value="<?= htmlspecialchars($test['unit']) ?>" required>
+            <input type="text" name="unit" class="form-control" value="<?= htmlspecialchars($test['unit']) ?>">
         </div>
 
         <div class="form-group">
             <label>Method</label>
-            <input type="text" name="method" class="form-control" value="<?= htmlspecialchars($test['method']) ?>" required>
+            <input type="text" name="method" class="form-control" value="<?= htmlspecialchars($test['method']) ?>">
         </div>
 
         <div class="form-group">

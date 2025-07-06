@@ -61,12 +61,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         <div class="form-group">
             <label>Unit</label>
-            <input type="text" name="unit" class="form-control" required placeholder="e.g. mg/dL, %">
+            <input type="text" name="unit" class="form-control" placeholder="e.g. mg/dL, %">
         </div>
 
         <div class="form-group">
             <label>Method</label>
-            <input type="text" name="method" class="form-control" required placeholder="e.g. CLIA, ELISA, ISE, etc.">
+            <input type="text" name="method" class="form-control"  placeholder="e.g. CLIA, ELISA, ISE, etc.">
         </div>
 
         <div class="form-group">
