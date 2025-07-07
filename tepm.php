@@ -516,8 +516,37 @@ document.getElementById('patientSearch').addEventListener('input', function() {
     <?php if ($patient && $billing_id): ?>
         <?php foreach ($results_by_department as $dept => $tests): ?>
             <?php
-            $test_chunks  = array_chunk($tests, 10);
-            $total_chunks = count($test_chunks);
+            $maxRowsPerChunk = 10;
+$chunks = [];
+$currentChunk = [];
+$currentCount = 0;
+
+foreach ($tests as $t) {
+    // “Row” for the test itself
+    $currentChunk[] = ['type'=>'test','item'=>$t];
+    $currentCount++;
+
+    // Now add component-rows if they exist
+    if (! empty($t['components'])) {
+        foreach ($t['components'] as $c) {
+            $currentChunk[] = ['type'=>'component','item'=>$c];
+            $currentCount++;
+        }
+    }
+
+    // Once we hit (or exceed) the max, start a new chunk
+    if ($currentCount >= $maxRowsPerChunk) {
+        $chunks[]      = $currentChunk;
+        $currentChunk  = [];
+        $currentCount  = 0;
+    }
+}
+
+// Add any leftover
+if (! empty($currentChunk)) {
+    $chunks[] = $currentChunk;
+}
+
             ?>
             <?php foreach ($test_chunks as $chunk_index => $test_group): ?>
                 <div class="report-container">
