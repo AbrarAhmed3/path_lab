@@ -59,7 +59,7 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
         return '';
     }
 
-    // 1) Pregnancy-specific range (if female & pregnant, no component)
+    // 1) Pregnancy-specific range (for female & pregnant, ignore component_label)
     if (
         $component_label === null &&
         !empty($patient['gestational_weeks']) &&
@@ -71,38 +71,33 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
              WHERE test_id    = ?
                AND range_type = 'pregnancy'
                AND ? BETWEEN gestation_min AND gestation_max
-               AND (
-                    (value_low  IS NULL OR ? >= value_low)
-                 AND (value_high IS NULL OR ? <= value_high)
-               )
              ORDER BY gestation_min DESC
              LIMIT 1
         ");
         $pq->bind_param(
-            'iidd',
+            'id',
             $test_id,
-            $patient['gestational_weeks'],
-            $value,
-            $value
+            $patient['gestational_weeks']
         );
         $pq->execute();
         $res = $pq->get_result();
         if ($r = $res->fetch_assoc()) {
-            $low  = $r['value_low'];
-            $high = $r['value_high'];
-            // build inner bracket
+            list($low, $high) = [$r['value_low'], $r['value_high']];
+            $pq->close();
+
+            // build the “[ low – high ]” inner text
             if ($low === null && $high === null)       $inner = '-';
             elseif ($low === null)                     $inner = "< {$high}";
             elseif ($high === null)                    $inner = "> {$low}";
             elseif ($low == $high)                     $inner = "{$low}";
             else                                        $inner = "{$low} - {$high}";
-            $pq->close();
+
             return "[ {$inner} ]";
         }
         $pq->close();
     }
 
-    // 2) General/component bracket containing the result
+    // 2) “In-range” lookup (component or general) — preserves your arrow logic outside this function
     $sql = "
         SELECT *
           FROM test_ranges
@@ -115,8 +110,8 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
              OR (? BETWEEN gestation_min AND gestation_max)
            )
            AND (
-                (value_low  IS NULL OR ? >= value_low)
-             AND (value_high IS NULL OR ? <= value_high)
+             (value_low  IS NULL OR ? >= value_low)
+          AND (value_high IS NULL OR ? <= value_high)
            )
     ";
     if ($component_label !== null) {
@@ -158,20 +153,48 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
     $stmt->execute();
     $res = $stmt->get_result();
     if ($r = $res->fetch_assoc()) {
-        $low  = $r['value_low'];
-        $high = $r['value_high'];
-        // build inner bracket
+        list($low, $high) = [$r['value_low'], $r['value_high']];
+        $stmt->close();
+
         if ($low === null && $high === null)       $inner = '-';
         elseif ($low === null)                     $inner = "< {$high}";
         elseif ($high === null)                    $inner = "> {$low}";
         elseif ($low == $high)                     $inner = "{$low}";
         else                                        $inner = "{$low} - {$high}";
-        $stmt->close();
+
         return "[ {$inner} ]";
     }
     $stmt->close();
 
-    // 3) Fallback: any gender/age_gender/simple span
+    // 3) Fallback #1: static component range (if this is a component at all)
+    if ($component_label !== null) {
+        $fbComp = $conn->prepare("
+            SELECT value_low, value_high
+              FROM test_ranges
+             WHERE test_id       = ?
+               AND range_type    = 'component'
+               AND condition_label = ?
+             LIMIT 1
+        ");
+        $fbComp->bind_param('is', $test_id, $component_label);
+        $fbComp->execute();
+        $cf = $fbComp->get_result()->fetch_assoc();
+        if ($cf) {
+            list($low, $high) = [$cf['value_low'], $cf['value_high']];
+            $fbComp->close();
+
+            if ($low === null && $high === null)       $inner = '-';
+            elseif ($low === null)                     $inner = "< {$high}";
+            elseif ($high === null)                    $inner = "> {$low}";
+            elseif ($low == $high)                     $inner = "{$low}";
+            else                                        $inner = "{$low} - {$high}";
+
+            return "[ {$inner} ]";
+        }
+        $fbComp->close();
+    }
+
+    // 4) Fallback #2: age_gender / gender / simple ranges
     $fbSql = "
         SELECT *
           FROM test_ranges
@@ -201,22 +224,23 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
     $fb->execute();
     $fres = $fb->get_result();
     if ($f = $fres->fetch_assoc()) {
-        $low  = $f['value_low'];
-        $high = $f['value_high'];
-        // build inner bracket
+        list($low, $high) = [$f['value_low'], $f['value_high']];
+        $fb->close();
+
         if ($low === null && $high === null)       $inner = '-';
         elseif ($low === null)                     $inner = "< {$high}";
         elseif ($high === null)                    $inner = "> {$low}";
         elseif ($low == $high)                     $inner = "{$low}";
         else                                        $inner = "{$low} - {$high}";
-        $fb->close();
+
         return "[ {$inner} ]";
     }
     $fb->close();
 
-    // 4) No matching range
+    // 5) Truly no range defined → still return empty
     return '';
 }
+
 
 // ─────────────────────────────────────────────────
 // Fetch metadata & booking/report dates
@@ -531,10 +555,10 @@ function formatRange($low, $high)
 
         <div id="print-area">
             <?php if ($patient && $billing_id): ?>
-
+<!-- widal test start -->
                         <?php if ($hasWidal): ?>
             <div class="report-container report-chunk">
-                <div class="watermark">Hemo Diagnostic Centre &amp; Polyclinic</div>
+                <div class="watermark">HDCP</div>
 
                 <!-- ─── HEADER IDENTICAL TO OTHER DEPTS ─── -->
                 <!-- Header Info -->
@@ -614,17 +638,19 @@ function formatRange($low, $high)
                         ?>
                             <tr>
                                 <td><?= htmlspecialchars($antigen) ?></td>
-                                <td>: <?= htmlspecialchars($d['1:20']  ?? '-') ?></td>
-                                <td>: <?= htmlspecialchars($d['1:40']  ?? '-') ?></td>
-                                <td>: <?= htmlspecialchars($d['1:80']  ?? '-') ?></td>
-                                <td>: <?= htmlspecialchars($d['1:160'] ?? '-') ?></td>
-                                <td>: <?= htmlspecialchars($d['1:320'] ?? '-') ?></td>
+                                <td> <?= htmlspecialchars($d['1:20']  ?? '-') ?></td>
+                                <td> <?= htmlspecialchars($d['1:40']  ?? '-') ?></td>
+                                <td> <?= htmlspecialchars($d['1:80']  ?? '-') ?></td>
+                                <td> <?= htmlspecialchars($d['1:160'] ?? '-') ?></td>
+                                <td> <?= htmlspecialchars($d['1:320'] ?? '-') ?></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
 
                 <p style="margin-top:20px;"><strong>NOTE :</strong> More than 1:80 dilution is significant.</p>
+                <p ><strong>Reference Index :</strong><br>Agglutination is Seen = (+)<br>
+                Agglutination is Not Seen = (-)</p>
 
                 <!-- ─── OPTIONAL INSTRUMENT INFO ─── -->
                 <?php if (!empty($machine_info_map['Serology'])): ?>
@@ -763,7 +789,7 @@ function formatRange($low, $high)
                     ?>
                     <?php foreach ($test_chunks as $chunk_index => $test_group): ?>
                         <div class="report-container">
-                            <div class="watermark">Hemo Diagnostic Centre & Polyclinic</div>
+                            <div class="watermark">HDCP</div>
 
                             <!-- Header Info -->
                             <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
