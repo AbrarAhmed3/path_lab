@@ -32,12 +32,12 @@
 
         .info-table td {
             font-size: 14px;
-            padding: 4px 8px;
+            padding: 2px 8px;
         }
 
         .test-table th,
         .test-table td {
-            font-size: 14px;
+            font-size: 11px;
             text-align: center;
             vertical-align: middle;
         }
@@ -76,7 +76,7 @@
         }
 
         .method-note {
-            font-size: 13px;
+            font-size: 10px;
             color: #555;
             display: block;
         }
@@ -170,11 +170,11 @@
 
         .test-table th,
         .test-table td {
-            font-size: 13px;
+            font-size: 12px;
             text-align: left;
             vertical-align: middle;
             border: none !important;
-            padding: 8px 10px;
+            padding: 2px 20px;
         }
 
         .test-table thead tr {

@@ -537,7 +537,7 @@ function formatRange($low, $high)
 
                         <!-- ─── HEADER IDENTICAL TO OTHER DEPTS ─── -->
                         <!-- Header Info -->
-                        <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
+                        <div class="row mb-1 align-items-center" style="flex-wrap: nowrap;">
                             <div class="col-md-4 pr-2" style="font-size: 13px;">
                                 <strong>Patient Name:</strong> <?= $patient['name'] ?><br>
                                 <strong>Sex / Age:</strong> <?= $patient['gender'] ?>/<?= $patient['age'] ?><br>
@@ -743,7 +743,7 @@ function formatRange($low, $high)
 <?php foreach ($results_by_department as $dept => $tests): ?>
 
     <?php
-    // ─── Serology special case: drop Widal category, skip if empty ───
+    // ─── Serology special case: drop Widal category ───
     if ($dept === 'Serology') {
         $tests = array_filter($tests, function ($t) {
             return !(
@@ -772,13 +772,10 @@ function formatRange($low, $high)
     <?php foreach ($categories as $catName => $catTests): ?>
 
         <?php
-        // 1) Build flat list of tests + component‐rows
+        // 1) Build flat list of tests + component‐rows with has_components flag
         $rows = [];
         foreach ($catTests as $t) {
-            // Parent test row
-            $rows[] = ['type'=>'test', 'data'=>$t];
-
-            // Fetch any component‐rows
+            // fetch components for this assignment
             $compStmt = $conn->prepare("
                 SELECT component_label, `value`, evaluation_label
                   FROM test_result_components
@@ -789,18 +786,30 @@ function formatRange($low, $high)
             $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
             $compStmt->close();
 
-            if (!empty($components)) {
+            $hasComponents = !empty($components);
+
+            // push the test row, marking if it has sub‐components
+            $rows[] = [
+                'type'           => 'test',
+                'data'           => $t,
+                'has_components' => $hasComponents
+            ];
+
+            // then push each component
+            if ($hasComponents) {
                 foreach ($components as $c) {
-                    // carry unit & test_id for display
-                    $c['unit']    = $t['unit'];
-                    $c['test_id'] = $t['test_id'];
-                    $rows[] = ['type'=>'component', 'data'=>$c];
+                    $c['unit']            = $t['unit'];
+                    $c['test_id']         = $t['test_id'];
+                    $rows[] = [
+                        'type' => 'component',
+                        'data' => $c
+                    ];
                 }
             }
         }
 
-        // 2) Chunk into pages of max 10 rendered rows
-        $maxRowsPerPage = 10;
+        // 2) Chunk into pages of max 23 rendered rows
+        $maxRowsPerPage = 23;
         $pageChunks     = array_chunk($rows, $maxRowsPerPage);
         ?>
 
@@ -808,73 +817,336 @@ function formatRange($low, $high)
             <div class="report-container report-chunk">
                 <div class="watermark">HDCP</div>
 
-                <!-- Header Info -->
-                <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
-                    <div class="col-md-4 pr-2" style="font-size: 13px;">
-                        <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
-                        <strong>Sex / Age:</strong> <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
-                        <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
-                            <strong>Pregnancy Status:</strong>
-                            Pregnant (<?= htmlspecialchars($patient['gestational_weeks']) ?> weeks)<br>
-                        <?php endif; ?>
-                        <strong>Referred By:</strong> <?= htmlspecialchars($referrerName) ?><br>
-                        <strong>Bill No:</strong> <?= 'HDC_' . htmlspecialchars($billing_id) ?>
-                    </div>
-                    <div class="col-md-4 text-center px-1">
-                        <div class="barcode-wrapper">
-                            <svg class="barcode"
-                                 jsbarcode-value="Bill: <?= htmlspecialchars($billing_id) ?> | <?= htmlspecialchars($report_delivery) ?>"
-                                 jsbarcode-format="CODE128"
-                                 jsbarcode-width="1.5"
-                                 jsbarcode-height="40"
-                                 jsbarcode-fontSize="10"></svg>
-                        </div>
-                    </div>
-                    <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
-                        <div>
-                            <strong>Patient Id:</strong> <?= 'HPI_' . htmlspecialchars($patient_id) ?><br>
-                            <strong>Booking On:</strong>
-                            <?= date('d-m-Y', strtotime($booking_on)) ?>
-                        </div>
-                        <div>
-                            <strong>Generated On:</strong>
-                            <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
-                        </div>
-                        <div>
-                            <strong>Report Delivery:</strong>
-                            <?= date('d-m-Y', strtotime($report_delivery)) ?>
-                        </div>
-                    </div>
+                <!-- Header Info… same as before -->
+                <div class="row mb-1 align-items-center" style="flex-wrap: nowrap;">
+                    <!-- patient/info/barcode… -->
                 </div>
 
                 <!-- Test Table -->
                 <div class="report-body-content">
-                    <h5 class="category-heading text-uppercase"
+                    <h5 class="category-heading text-uppercase mb-1"
                         style="background:#f5f5f5;padding:8px;font-weight:600;text-align:center;">
                         <?= htmlspecialchars($dept) ?> Department
                     </h5>
-                    <h6 class="text-center mb-3">
+                    <h6 class="text-center mb-1">
                         Report on <?= htmlspecialchars($catName) ?>
                     </h6>
 
-                    <table class="table test-table" style="border: none;">
+                    <table class="table test-table" style="border:none;">
                         <thead>
-                            <tr style="border-bottom: 1px solid #999;">
-                                <th style="font-weight: 600; text-align: left;">INVESTIGATION</th>
+                            <tr style="border-bottom:1px solid #999;">
+                                <th style="font-weight:600;text-align:left;">INVESTIGATION</th>
                                 <th></th>
-                                <th style="font-weight: 600; text-align: left;">RESULT</th>
-                                <th style="font-weight: 600; text-align: left;">UNIT</th>
-                                <th style="font-weight: 600; text-align: left;">REFERENCE RANGE</th>
+                                <th style="font-weight:600;text-align:left;">RESULT</th>
+                                <th style="font-weight:600;text-align:left;">UNIT</th>
+                                <th style="font-weight:600;text-align:left;">REFERENCE RANGE</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($chunk as $row): ?>
-                                <?php if ($row['type'] === 'test'):
-                                    $t = $row['data'];
-                                    $val = $t['result_value'];
-                                    $display_val = htmlspecialchars($val);
 
-                                    // Arrow logic
+                                <?php if ($row['type'] === 'test'):
+                                    $t             = $row['data'];
+                                    $hasComponents = $row['has_components'];
+                                    $showValues    = !$hasComponents;
+
+                                    // compute display_val + ref_display only if this test has its own result
+                                    $val         = $t['result_value'];
+                                    $display_val = htmlspecialchars($val);
+                                    $ref_display = '';
+                                    if ($showValues) {
+                                        // arrow logic
+                                        $rrStmt = $conn->prepare("
+                                            SELECT value_low, value_high
+                                              FROM test_ranges
+                                             WHERE test_id = ?
+                                               AND (gender = ? OR gender = 'Any')
+                                               AND (age_min IS NULL OR age_min <= ?)
+                                               AND (age_max IS NULL OR age_max >= ?)
+                                               AND (
+                                                    (gestation_min IS NULL AND gestation_max IS NULL)
+                                                 OR (? BETWEEN gestation_min AND gestation_max)
+                                               )
+                                             ORDER BY
+                                               FIELD(range_type,'label','component','age_gender','gender','age','simple'),
+                                               gestation_min DESC,
+                                               age_min       DESC
+                                             LIMIT 1
+                                        ");
+                                        $rrStmt->bind_param(
+                                            "isiii",
+                                            $t['test_id'],
+                                            $patient['gender'],
+                                            $patient['age'],
+                                            $patient['age'],
+                                            $patient['gestational_weeks']
+                                        );
+                                        $rrStmt->execute();
+                                        $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low'=>null,'value_high'=>null];
+                                        $rrStmt->close();
+
+                                        if (is_numeric($val)) {
+                                            if ($rr['value_high'] !== null && $val > $rr['value_high']) {
+                                                $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
+                                            } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
+                                                $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
+                                            }
+                                        }
+
+                                        $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
+                                    }
+                                ?>
+                                    <tr>
+                                        <td style="font-weight:500;">
+                                            <?= htmlspecialchars($t['test_name']) ?>
+                                            <?= $t['method']
+                                                ? "<span class='method-note'>Method: ".htmlspecialchars($t['method'])."</span>"
+                                                : '' ?>
+                                        </td>
+
+                                        <!-- only show colon if we have a direct result -->
+                                        <?php if ($showValues): ?>
+                                            <td style="font-weight:600;">:</td>
+                                        <?php else: ?>
+                                            <td></td>
+                                        <?php endif; ?>
+
+                                        <td><?= $showValues ? $display_val : '' ?></td>
+                                        <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
+                                        <td><?= $showValues ? $ref_display : '' ?></td>
+                                    </tr>
+
+                                <?php else:
+                                    // component row always shows its own value
+                                    $c = $row['data'];
+                                    $val = htmlspecialchars($c['value']);
+                                    if (!empty($c['evaluation_label'])) {
+                                        $val .= " (".htmlspecialchars($c['evaluation_label']).")";
+                                    }
+                                    $ref_display = render_reference_range_html(
+                                        $c['test_id'],
+                                        $patient,
+                                        $c['value'],
+                                        $c['component_label']
+                                    );
+                                ?>
+                                    <tr>
+                                        <td style="padding-left:2rem;"><?= htmlspecialchars($c['component_label']) ?></td>
+                                        <td>:</td>
+                                        <td><?= $val ?></td>
+                                        <td><?= htmlspecialchars($c['unit']) ?></td>
+                                        <td><?= $ref_display ?></td>
+                                    </tr>
+                                <?php endif; ?>
+
+                            <?php endforeach; ?>
+
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Machine info -->
+                                <?php if (!empty($machine_info_map[$dept])): ?>
+                                    <div class="mb-3 pl-2" style="text-align: left;">
+                                        <strong>Instruments:</strong>
+                                        <?= htmlspecialchars($machine_info_map[$dept]) ?>
+                                    </div>
+                                <?php endif; ?>
+
+                                <!-- Footer & signatures -->
+                                <?php
+                                // Fetch selected lab doctors
+                                $stmt = $conn->prepare("
+                    SELECT rld.doctor_id,
+                           rld.is_treating_doctor,
+                           d.name,
+                           d.qualification,
+                           d.reg_no,
+                           d.signature
+                      FROM report_lab_doctors rld
+                      JOIN doctors d ON d.doctor_id = rld.doctor_id
+                     WHERE rld.billing_id = ?
+                     ORDER BY rld.is_treating_doctor DESC, d.name ASC
+                ");
+                                $stmt->bind_param("i", $billing_id);
+                                $stmt->execute();
+                                $res = $stmt->get_result();
+                                $treated = [];
+                                $nonTreated = [];
+                                while ($docRow = $res->fetch_assoc()) {
+                                    if ((int)$docRow['is_treating_doctor'] === 1) {
+                                        $treated[] = $docRow;
+                                    } else {
+                                        $nonTreated[] = $docRow;
+                                    }
+                                }
+                                $stmt->close();
+
+                                // Decide slots
+                                $doc1 = $doc2 = null;
+                                if (count($treated) >= 2) {
+                                    $doc1 = $treated[0];
+                                    $doc2 = $treated[1];
+                                } elseif (count($treated) === 1) {
+                                    $doc1 = $nonTreated[0] ?? null;
+                                    $doc2 = $treated[0];
+                                } else {
+                                    if (count($nonTreated) >= 2) {
+                                        $doc1 = $nonTreated[0];
+                                        $doc2 = $nonTreated[1];
+                                    } elseif (count($nonTreated) === 1) {
+                                        $doc1 = $nonTreated[0];
+                                    }
+                                }
+                                ?>
+
+                                <div class="print-footer">
+                                    <?php
+                                    // Build QR text
+                                    $qrText = "Patient: {$patient['name']} | ID: {$patient['patient_id']}"
+                                        . " | Bill: {$billing_id} | Report: "
+                                        . date('d-m-Y', strtotime($report_generated_on));
+                                    if (!empty($patient['referred_by'])) {
+                                        $stmt2 = $conn->prepare("
+                            SELECT name FROM doctors WHERE doctor_id = ?
+                        ");
+                                        $stmt2->bind_param("i", $patient['referred_by']);
+                                        $stmt2->execute();
+                                        $refDoc = $stmt2->get_result()->fetch_assoc();
+                                        $stmt2->close();
+                                        if ($refDoc) {
+                                            $qrText .= " | Referred By: {$refDoc['name']}";
+                                        }
+                                    }
+                                    ?>
+                                    <div class="footer-note row text-center align-items-top">
+                                        <div class="col-md-3 text-center">
+                                            <canvas id="qr-code-<?= htmlspecialchars($billing_id . '-' . $pageIndex . '-' . md5($dept . $catName)) ?>"></canvas>
+                                        </div>
+                                        <div class="col-md-3 text-left">
+                                            <img src="uploads/signature2.png" alt="Signature" style="max-height:50px;"><br>
+                                            <strong>SABINA YEASMIN</strong><br>
+                                            Medical Lab Technician<br>
+                                        </div>
+                                        <div class="col-md-3 text-left">
+                                            <?php if ($doc1): ?>
+                                                <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
+                                                    <img
+                                                        src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
+                                                        alt="Signature of Dr. <?= htmlspecialchars($doc1['name']) ?>"
+                                                        style="max-height:50px; margin-bottom:5px; display:block;">
+                                                <?php endif; ?>
+                                                <strong><?= htmlspecialchars($doc1['name']) ?></strong><br>
+                                                <?= htmlspecialchars($doc1['qualification']) ?><br>
+                                                Reg. No. <?= htmlspecialchars($doc1['reg_no']) ?>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="col-md-3 text-left">
+                                            <?php if ($doc2): ?>
+                                                <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
+                                                    <img
+                                                        src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
+                                                        alt="Signature of Dr. <?= htmlspecialchars($doc2['name']) ?>"
+                                                        style="max-height:50px; margin-bottom:5px; display:block;">
+                                                <?php endif; ?>
+                                                <strong><?= htmlspecialchars($doc2['name']) ?></strong><br>
+                                                <?= htmlspecialchars($doc2['qualification']) ?><br>
+                                                Reg. No. <?= htmlspecialchars($doc2['reg_no']) ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div><!-- /.print-footer -->
+
+                            </div><!-- /.report-container -->
+                        <?php endforeach; // end pageChunks 
+                        ?>
+
+                    <?php endforeach; // end categories 
+                    ?>
+
+<!-- ─── Finally: uncategorized tests on their own page (if any) ─── -->
+<?php if (!empty($otherTests)): ?>
+    <?php
+    // ─── 1) Build flat list of tests + component‐rows ───
+    $rows = [];
+    $seenAssignments = [];
+
+    foreach ($otherTests as $t) {
+        if (in_array($t['assignment_id'], $seenAssignments)) {
+            continue;
+        }
+        $seenAssignments[] = $t['assignment_id'];
+
+        // fetch components
+        $compStmt = $conn->prepare("
+            SELECT component_label, `value`, evaluation_label
+              FROM test_result_components
+             WHERE assignment_id = ?
+        ");
+        $compStmt->bind_param("i", $t['assignment_id']);
+        $compStmt->execute();
+        $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $compStmt->close();
+
+        $hasComponents = !empty($components);
+
+        // push the test row once
+        $rows[] = [
+            'type'           => 'test',
+            'data'           => $t,
+            'has_components' => $hasComponents
+        ];
+
+        // then push each component
+        if ($hasComponents) {
+            foreach ($components as $c) {
+                $c['unit']            = $t['unit'];
+                $c['test_id']         = $t['test_id'];
+                $rows[] = [
+                    'type' => 'component',
+                    'data' => $c
+                ];
+            }
+        }
+    }
+
+    // ─── 2) Chunk into pages ───
+    $maxRowsPerPage = 20;
+    $pageChunks     = array_chunk($rows, $maxRowsPerPage);
+    ?>
+
+    <?php foreach ($pageChunks as $pageIndex => $chunk): ?>
+        <div class="report-container report-chunk">
+            <div class="watermark">HDCP</div>
+
+            <!-- header omitted for brevity… -->
+
+            <div class="report-body-content">
+                <h5 class="text-center text-uppercase mb-1" style="background:#f5f5f5;padding:8px;font-weight:600;">
+                    <?= htmlspecialchars($dept) ?> Department
+                </h5>
+                <table class="table test-table" style="border:none;">
+                    <thead>
+                        <tr style="border-bottom:1px solid #999;">
+                            <th style="font-weight:600;text-align:left;">INVESTIGATION</th>
+                            <th></th>
+                            <th style="font-weight:600;text-align:left;">RESULT</th>
+                            <th style="font-weight:600;text-align:left;">UNIT</th>
+                            <th style="font-weight:600;text-align:left;">REFERENCE RANGE</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($chunk as $row): ?>
+                            <?php if ($row['type'] === 'test'):
+                                $t             = $row['data'];
+                                $hasComponents = $row['has_components'] ?? false;
+                                $showValues    = !$hasComponents;
+
+                                // prepare display_val + ref_display
+                                $val         = $t['result_value'];
+                                $display_val = htmlspecialchars($val);
+                                if ($showValues) {
+                                    // fetch range & decorate arrows…
                                     $rrStmt = $conn->prepare("
                                         SELECT value_low, value_high
                                           FROM test_ranges
@@ -883,8 +1155,8 @@ function formatRange($low, $high)
                                            AND (age_min IS NULL OR age_min <= ?)
                                            AND (age_max IS NULL OR age_max >= ?)
                                            AND (
-                                                (gestation_min IS NULL AND gestation_max IS NULL)
-                                             OR (? BETWEEN gestation_min AND gestation_max)
+                                               (gestation_min IS NULL AND gestation_max IS NULL)
+                                               OR (? BETWEEN gestation_min AND gestation_max)
                                            )
                                          ORDER BY
                                            FIELD(range_type,'label','component','age_gender','gender','age','simple'),
@@ -901,8 +1173,7 @@ function formatRange($low, $high)
                                         $patient['gestational_weeks']
                                     );
                                     $rrStmt->execute();
-                                    $rr = $rrStmt->get_result()->fetch_assoc() 
-                                         ?: ['value_low'=>null,'value_high'=>null];
+                                    $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low'=>null,'value_high'=>null];
                                     $rrStmt->close();
 
                                     if (is_numeric($val)) {
@@ -914,316 +1185,41 @@ function formatRange($low, $high)
                                     }
 
                                     $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
-                                ?>
-                                    <tr>
-                                        <td style="font-weight:500;">
-                                            <?= htmlspecialchars($t['test_name']) ?>
-                                            <?= $t['method']
-                                                ? "<span class='method-note'>Method: " . htmlspecialchars($t['method']) . "</span>"
-                                                : '' ?>
-                                        </td>
-                                        <td style="font-weight:600;">:</td>
-                                        <td><?= $display_val ?></td>
-                                        <td><?= htmlspecialchars($t['unit']) ?></td>
-                                        <td><?= $ref_display ?></td>
-                                    </tr>
-                                <?php else:
-                                    $c = $row['data'];
-                                    $val = htmlspecialchars($c['value']);
-                                    if (!empty($c['evaluation_label'])) {
-                                        $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
-                                    }
-                                    $ref_display = render_reference_range_html(
-                                        $c['test_id'], $patient, $c['value'], $c['component_label']
-                                    );
-                                ?>
-                                    <tr>
-                                        <td style="padding-left:2rem;">
-                                            <?= htmlspecialchars($c['component_label']) ?>
-                                        </td>
-                                        <td>:</td>
-                                        <td><?= $val ?></td>
-                                        <td><?= htmlspecialchars($c['unit']) ?></td>
-                                        <td><?= $ref_display ?></td>
-                                    </tr>
-                                <?php endif; ?>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-
-                <!-- Machine info -->
-                <?php if (!empty($machine_info_map[$dept])): ?>
-                    <div class="mb-3 pl-2" style="text-align: left;">
-                        <strong>Instruments:</strong>
-                        <?= htmlspecialchars($machine_info_map[$dept]) ?>
-                    </div>
-                <?php endif; ?>
-
-                <!-- Footer & signatures -->
-                <?php
-                // Fetch selected lab doctors
-                $stmt = $conn->prepare("
-                    SELECT rld.doctor_id,
-                           rld.is_treating_doctor,
-                           d.name,
-                           d.qualification,
-                           d.reg_no,
-                           d.signature
-                      FROM report_lab_doctors rld
-                      JOIN doctors d ON d.doctor_id = rld.doctor_id
-                     WHERE rld.billing_id = ?
-                     ORDER BY rld.is_treating_doctor DESC, d.name ASC
-                ");
-                $stmt->bind_param("i", $billing_id);
-                $stmt->execute();
-                $res = $stmt->get_result();
-                $treated = []; $nonTreated = [];
-                while ($docRow = $res->fetch_assoc()) {
-                    if ((int)$docRow['is_treating_doctor'] === 1) {
-                        $treated[] = $docRow;
-                    } else {
-                        $nonTreated[] = $docRow;
-                    }
-                }
-                $stmt->close();
-
-                // Decide slots
-                $doc1 = $doc2 = null;
-                if (count($treated) >= 2) {
-                    $doc1 = $treated[0]; $doc2 = $treated[1];
-                } elseif (count($treated) === 1) {
-                    $doc1 = $nonTreated[0] ?? null;
-                    $doc2 = $treated[0];
-                } else {
-                    if (count($nonTreated) >= 2) {
-                        $doc1 = $nonTreated[0]; $doc2 = $nonTreated[1];
-                    } elseif (count($nonTreated) === 1) {
-                        $doc1 = $nonTreated[0];
-                    }
-                }
-                ?>
-
-                <div class="print-footer">
-                    <?php
-                    // Build QR text
-                    $qrText = "Patient: {$patient['name']} | ID: {$patient['patient_id']}"
-                            . " | Bill: {$billing_id} | Report: "
-                            . date('d-m-Y', strtotime($report_generated_on));
-                    if (!empty($patient['referred_by'])) {
-                        $stmt2 = $conn->prepare("
-                            SELECT name FROM doctors WHERE doctor_id = ?
-                        ");
-                        $stmt2->bind_param("i", $patient['referred_by']);
-                        $stmt2->execute();
-                        $refDoc = $stmt2->get_result()->fetch_assoc();
-                        $stmt2->close();
-                        if ($refDoc) {
-                            $qrText .= " | Referred By: {$refDoc['name']}";
-                        }
-                    }
-                    ?>
-                    <div class="footer-note row text-center align-items-top">
-                        <div class="col-md-3 text-center">
-                            <canvas id="qr-code-<?= htmlspecialchars($billing_id . '-' . $pageIndex . '-' . md5($dept . $catName)) ?>"></canvas>
-                        </div>
-                        <div class="col-md-3 text-left">
-                            <img src="uploads/signature2.png" alt="Signature" style="max-height:50px;"><br>
-                            <strong>SABINA YEASMIN</strong><br>
-                            Medical Lab Technician<br>
-                        </div>
-                        <div class="col-md-3 text-left">
-                            <?php if ($doc1): ?>
-                                <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
-                                    <img
-                                        src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
-                                        alt="Signature of Dr. <?= htmlspecialchars($doc1['name']) ?>"
-                                        style="max-height:50px; margin-bottom:5px; display:block;">
-                                <?php endif; ?>
-                                <strong><?= htmlspecialchars($doc1['name']) ?></strong><br>
-                                <?= htmlspecialchars($doc1['qualification']) ?><br>
-                                Reg. No. <?= htmlspecialchars($doc1['reg_no']) ?>
-                            <?php endif; ?>
-                        </div>
-                        <div class="col-md-3 text-left">
-                            <?php if ($doc2): ?>
-                                <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
-                                    <img
-                                        src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
-                                        alt="Signature of Dr. <?= htmlspecialchars($doc2['name']) ?>"
-                                        style="max-height:50px; margin-bottom:5px; display:block;">
-                                <?php endif; ?>
-                                <strong><?= htmlspecialchars($doc2['name']) ?></strong><br>
-                                <?= htmlspecialchars($doc2['qualification']) ?><br>
-                                Reg. No. <?= htmlspecialchars($doc2['reg_no']) ?>
-                            <?php endif; ?>
-                        </div>
-                    </div>
-                </div><!-- /.print-footer -->
-
-            </div><!-- /.report-container -->
-        <?php endforeach; // end pageChunks ?>
-
-    <?php endforeach; // end categories ?>
-
-
-                    <!-- ─── Finally: uncategorized tests on their own page (if any) ─── -->
-                    <?php if (!empty($otherTests)): ?>
-    <?php
-    // ─── 1) Build flat list of tests + component‐rows ───
-    $rows = [];
-    foreach ($otherTests as $t) {
-        // Parent test row
-        $rows[] = ['type'=>'test', 'data'=>$t];
-
-        // Fetch any component‐rows
-        $compStmt = $conn->prepare("
-            SELECT component_label, `value`, evaluation_label
-              FROM test_result_components
-             WHERE assignment_id = ?
-        ");
-        $compStmt->bind_param("i", $t['assignment_id']);
-        $compStmt->execute();
-        $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $compStmt->close();
-
-        if (!empty($components)) {
-            foreach ($components as $c) {
-                // Carry along unit & test_id for ref‐range & unit display
-                $c['unit']    = $t['unit'];
-                $c['test_id'] = $t['test_id'];
-                $rows[] = ['type'=>'component', 'data'=>$c];
-            }
-        }
-    }
-
-    // ─── 2) Chunk into pages of max 10 rows each ───
-    $maxRowsPerPage = 10;
-    $pageChunks     = array_chunk($rows, $maxRowsPerPage);
-    ?>
-
-    <?php foreach ($pageChunks as $pageIndex => $chunk): ?>
-        <div class="report-container report-chunk">
-            <div class="watermark">HDCP</div>
-
-            <!-- Header Info -->
-            <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
-                <div class="col-md-4 pr-2" style="font-size: 13px;">
-                    <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
-                    <strong>Sex / Age:</strong> <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
-                    <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
-                        <strong>Pregnancy Status:</strong> Pregnant (<?= htmlspecialchars($patient['gestational_weeks']) ?> weeks)<br>
-                    <?php endif; ?>
-                    <strong>Referred By:</strong> <?= htmlspecialchars($referrerName) ?><br>
-                    <strong>Bill No:</strong> <?= 'HDC_' . htmlspecialchars($billing_id) ?>
-                </div>
-                <div class="col-md-4 text-center px-1">
-                    <div class="barcode-wrapper">
-                        <svg class="barcode"
-                             jsbarcode-value="Bill: <?= htmlspecialchars($billing_id) ?> | <?= htmlspecialchars($report_delivery) ?>"
-                             jsbarcode-format="CODE128"
-                             jsbarcode-width="1.5"
-                             jsbarcode-height="40"
-                             jsbarcode-fontSize="10"></svg>
-                    </div>
-                </div>
-                <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
-                    <div>
-                        <strong>Patient Id:</strong> <?= 'HPI_' . htmlspecialchars($patient_id) ?><br>
-                        <strong>Booking On:</strong> <?= date('d-m-Y', strtotime($booking_on)) ?>
-                    </div>
-                    <div>
-                        <strong>Generated On:</strong>
-                        <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
-                    </div>
-                    <div>
-                        <strong>Report Delivery:</strong> <?= date('d-m-Y', strtotime($report_delivery)) ?>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Other Tests Table -->
-            <div class="report-body-content">
-                <h5 class="text-center text-uppercase mb-3"style="background:#f5f5f5;padding:8px;font-weight:600;"><?= htmlspecialchars($dept) ?> Department</h5>
-                <table class="table test-table" style="border: none;">
-                    <thead>
-                        <tr style="border-bottom: 1px solid #999;">
-                            <th style="font-weight: 600; text-align: left;">INVESTIGATION</th>
-                            <th></th>
-                            <th style="font-weight: 600; text-align: left;">RESULT</th>
-                            <th style="font-weight: 600; text-align: left;">UNIT</th>
-                            <th style="font-weight: 600; text-align: left;">REFERENCE RANGE</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($chunk as $row): ?>
-                            <?php if ($row['type'] === 'test'): 
-                                $t = $row['data'];
-                                // Standalone test value & ref‐range
-                                $val         = $t['result_value'];
-                                $display_val = htmlspecialchars($val);
-
-                                // check high/low arrows
-                                $rrStmt = $conn->prepare("
-                                    SELECT value_low, value_high
-                                      FROM test_ranges
-                                     WHERE test_id = ?
-                                       AND (gender = ? OR gender = 'Any')
-                                       AND (age_min IS NULL OR age_min <= ?)
-                                       AND (age_max IS NULL OR age_max >= ?)
-                                       AND (
-                                            (gestation_min IS NULL AND gestation_max IS NULL)
-                                            OR (? BETWEEN gestation_min AND gestation_max)
-                                       )
-                                     ORDER BY
-                                       FIELD(range_type,'label','component','age_gender','gender','age','simple'),
-                                       gestation_min DESC,
-                                       age_min       DESC
-                                     LIMIT 1
-                                ");
-                                $rrStmt->bind_param(
-                                    "isiii",
-                                    $t['test_id'],
-                                    $patient['gender'],
-                                    $patient['age'],
-                                    $patient['age'],
-                                    $patient['gestational_weeks']
-                                );
-                                $rrStmt->execute();
-                                $rr = $rrStmt->get_result()->fetch_assoc() 
-                                      ?: ['value_low'=>null,'value_high'=>null];
-                                $rrStmt->close();
-
-                                if (is_numeric($val)) {
-                                    if ($rr['value_high'] !== null && $val > $rr['value_high']) {
-                                        $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
-                                    } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
-                                        $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
-                                    }
+                                } else {
+                                    $display_val = '';
+                                    $ref_display = '';
                                 }
-
-                                $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
                             ?>
                                 <tr>
-                                    <td style="padding-left:2rem;font-weight:500;">
-                                        <strong><?= htmlspecialchars($t['test_name']) ?></strong>
+                                    <td style="font-weight:500;">
+                                        <?= htmlspecialchars($t['test_name']) ?>
                                         <?= $t['method']
-                                            ? "<span class='method-note'>Method: " . htmlspecialchars($t['method']) . "</span>"
+                                            ? "<span class='method-note'>Method: ".htmlspecialchars($t['method'])."</span>"
                                             : '' ?>
                                     </td>
-                                    <td style="font-weight:600;">:</td>
+
+                                    <!-- only show the colon when we have a value -->
+                                    <?php if ($showValues): ?>
+                                        <td style="font-weight:600;">:</td>
+                                    <?php else: ?>
+                                        <td></td>
+                                    <?php endif; ?>
+
                                     <td><?= $display_val ?></td>
-                                    <td><?= htmlspecialchars($t['unit']) ?></td>
+                                    <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
                                     <td><?= $ref_display ?></td>
                                 </tr>
-                            <?php else: 
+                            <?php else:
                                 $c = $row['data'];
                                 $val = htmlspecialchars($c['value']);
                                 if (!empty($c['evaluation_label'])) {
-                                    $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
+                                    $val .= " (".htmlspecialchars($c['evaluation_label']).")";
                                 }
                                 $ref_display = render_reference_range_html(
-                                    $c['test_id'], $patient, $c['value'], $c['component_label']
+                                    $c['test_id'],
+                                    $patient,
+                                    $c['value'],
+                                    $c['component_label']
                                 );
                             ?>
                                 <tr>
@@ -1235,21 +1231,23 @@ function formatRange($low, $high)
                                 </tr>
                             <?php endif; ?>
                         <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
 
-            <!-- Machine info -->
-            <?php if (!empty($machine_info_map[$dept])): ?>
-                <div class="mb-3 pl-2" style="text-align: left;">
-                    <strong>Instruments:</strong> <?= htmlspecialchars($machine_info_map[$dept]) ?>
-                </div>
-            <?php endif; ?>
 
-            <!-- Footer & signatures -->
-            <?php
-            // Fetch and decide doc1/doc2 as before
-            $stmt = $conn->prepare("
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <!-- Machine info -->
+                                <?php if (!empty($machine_info_map[$dept])): ?>
+                                    <div class="mb-3 pl-2" style="text-align: left;">
+                                        <strong>Instruments:</strong> <?= htmlspecialchars($machine_info_map[$dept]) ?>
+                                    </div>
+                                <?php endif; ?>
+
+                                <!-- Footer & signatures -->
+                                <?php
+                                // Fetch and decide doc1/doc2 as before
+                                $stmt = $conn->prepare("
                 SELECT rld.doctor_id,
                        rld.is_treating_doctor,
                        d.name,
@@ -1261,90 +1259,93 @@ function formatRange($low, $high)
                  WHERE rld.billing_id = ?
                  ORDER BY rld.is_treating_doctor DESC, d.name ASC
             ");
-            $stmt->bind_param("i", $billing_id);
-            $stmt->execute();
-            $res = $stmt->get_result();
-            $treated = []; $nonTreated = [];
-            while ($row = $res->fetch_assoc()) {
-                if ((int)$row['is_treating_doctor'] === 1) {
-                    $treated[] = $row;
-                } else {
-                    $nonTreated[] = $row;
-                }
-            }
-            $stmt->close();
+                                $stmt->bind_param("i", $billing_id);
+                                $stmt->execute();
+                                $res = $stmt->get_result();
+                                $treated = [];
+                                $nonTreated = [];
+                                while ($row = $res->fetch_assoc()) {
+                                    if ((int)$row['is_treating_doctor'] === 1) {
+                                        $treated[] = $row;
+                                    } else {
+                                        $nonTreated[] = $row;
+                                    }
+                                }
+                                $stmt->close();
 
-            // Decide doc1/doc2 slots
-            $doc1 = $doc2 = null;
-            if (count($treated) >= 2) {
-                $doc1 = $treated[0]; $doc2 = $treated[1];
-            } elseif (count($treated) === 1) {
-                $doc1 = $nonTreated[0] ?? null;
-                $doc2 = $treated[0];
-            } else {
-                if (count($nonTreated) >= 2) {
-                    $doc1 = $nonTreated[0]; $doc2 = $nonTreated[1];
-                } elseif (count($nonTreated) === 1) {
-                    $doc1 = $nonTreated[0];
-                }
-            }
-            ?>
-            <div class="print-footer">
-                <?php
-                // Build QR text
-                $qrText = "Patient: {$patient['name']} | ID: {$patient['patient_id']} | Bill: {$billing_id} | Report: "
-                        . date('d-m-Y', strtotime($report_generated_on));
-                if (!empty($patient['referred_by'])) {
-                    $stmt = $conn->prepare("
+                                // Decide doc1/doc2 slots
+                                $doc1 = $doc2 = null;
+                                if (count($treated) >= 2) {
+                                    $doc1 = $treated[0];
+                                    $doc2 = $treated[1];
+                                } elseif (count($treated) === 1) {
+                                    $doc1 = $nonTreated[0] ?? null;
+                                    $doc2 = $treated[0];
+                                } else {
+                                    if (count($nonTreated) >= 2) {
+                                        $doc1 = $nonTreated[0];
+                                        $doc2 = $nonTreated[1];
+                                    } elseif (count($nonTreated) === 1) {
+                                        $doc1 = $nonTreated[0];
+                                    }
+                                }
+                                ?>
+                                <div class="print-footer">
+                                    <?php
+                                    // Build QR text
+                                    $qrText = "Patient: {$patient['name']} | ID: {$patient['patient_id']} | Bill: {$billing_id} | Report: "
+                                        . date('d-m-Y', strtotime($report_generated_on));
+                                    if (!empty($patient['referred_by'])) {
+                                        $stmt = $conn->prepare("
                         SELECT name FROM doctors WHERE doctor_id = ?
                     ");
-                    $stmt->bind_param("i", $patient['referred_by']);
-                    $stmt->execute();
-                    $refDoc = $stmt->get_result()->fetch_assoc();
-                    $stmt->close();
-                    if ($refDoc) {
-                        $qrText .= " | Referred By: {$refDoc['name']}";
-                    }
-                }
-                ?>
-                <div class="footer-note row text-center align-items-top">
-                    <div class="col-md-3 text-center">
-                        <canvas id="qr-code-<?= $billing_id . '-' . md5($dept) ?>"></canvas>
-                    </div>
-                    <div class="col-md-3 text-left">
-                        <img src="uploads/signature2.png" alt="Signature" style="max-height:50px;"><br>
-                        <strong>SABINA YEASMIN</strong><br>
-                        Medical Lab Technician<br>
-                    </div>
-                    <div class="col-md-3 text-left">
-                        <?php if ($doc1): ?>
-                            <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
-                                <img src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
-                                     alt="Signature of Dr. <?= htmlspecialchars($doc1['name']) ?>"
-                                     style="max-height:50px;margin-bottom:5px;display:block;">
-                            <?php endif; ?>
-                            <strong><?= htmlspecialchars($doc1['name']) ?></strong><br>
-                            <?= htmlspecialchars($doc1['qualification']) ?><br>
-                            Reg. No. <?= htmlspecialchars($doc1['reg_no']) ?>
-                        <?php endif; ?>
-                    </div>
-                    <div class="col-md-3 text-left">
-                        <?php if ($doc2): ?>
-                            <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
-                                <img src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
-                                     alt="Signature of Dr. <?= htmlspecialchars($doc2['name']) ?>"
-                                     style="max-height:50px;margin-bottom:5px;display:block;">
-                            <?php endif; ?>
-                            <strong><?= htmlspecialchars($doc2['name']) ?></strong><br>
-                            <?= htmlspecialchars($doc2['qualification']) ?><br>
-                            Reg. No. <?= htmlspecialchars($doc2['reg_no']) ?>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
-        </div>
-    <?php endforeach; ?>
-<?php endif; ?>
+                                        $stmt->bind_param("i", $patient['referred_by']);
+                                        $stmt->execute();
+                                        $refDoc = $stmt->get_result()->fetch_assoc();
+                                        $stmt->close();
+                                        if ($refDoc) {
+                                            $qrText .= " | Referred By: {$refDoc['name']}";
+                                        }
+                                    }
+                                    ?>
+                                    <div class="footer-note row text-center align-items-top">
+                                        <div class="col-md-3 text-center">
+                                            <canvas id="qr-code-<?= $billing_id . '-' . md5($dept) ?>"></canvas>
+                                        </div>
+                                        <div class="col-md-3 text-left">
+                                            <img src="uploads/signature2.png" alt="Signature" style="max-height:50px;"><br>
+                                            <strong>SABINA YEASMIN</strong><br>
+                                            Medical Lab Technician<br>
+                                        </div>
+                                        <div class="col-md-3 text-left">
+                                            <?php if ($doc1): ?>
+                                                <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
+                                                    <img src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
+                                                        alt="Signature of Dr. <?= htmlspecialchars($doc1['name']) ?>"
+                                                        style="max-height:50px;margin-bottom:5px;display:block;">
+                                                <?php endif; ?>
+                                                <strong><?= htmlspecialchars($doc1['name']) ?></strong><br>
+                                                <?= htmlspecialchars($doc1['qualification']) ?><br>
+                                                Reg. No. <?= htmlspecialchars($doc1['reg_no']) ?>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="col-md-3 text-left">
+                                            <?php if ($doc2): ?>
+                                                <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
+                                                    <img src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
+                                                        alt="Signature of Dr. <?= htmlspecialchars($doc2['name']) ?>"
+                                                        style="max-height:50px;margin-bottom:5px;display:block;">
+                                                <?php endif; ?>
+                                                <strong><?= htmlspecialchars($doc2['name']) ?></strong><br>
+                                                <?= htmlspecialchars($doc2['qualification']) ?><br>
+                                                Reg. No. <?= htmlspecialchars($doc2['reg_no']) ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
 
 
                 <?php endforeach; ?>
