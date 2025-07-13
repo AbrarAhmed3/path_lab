@@ -39,15 +39,22 @@ if ($patient_id > 0 && $billing_id > 0) {
 // Group tests by category (including Uncategorized)
 $testGroups = [];
 $rs = $conn->query("
-    SELECT 
-        t.test_id, 
-        t.name AS test_name, 
-        COALESCE(c.category_name, 'Uncategorized') AS category_name
-    FROM tests t
-    LEFT JOIN category_tests ct ON t.test_id = ct.test_id
-    LEFT JOIN test_categories c ON ct.category_id = c.category_id
-    ORDER BY category_name, test_name
+  SELECT 
+      t.test_id, 
+      t.name           AS test_name,
+      COALESCE(c.category_name, 'Uncategorized') AS category_name,
+      COALESCE(ct.sort_order,0) AS sort_order
+  FROM tests t
+  LEFT JOIN category_tests ct 
+    ON t.test_id     = ct.test_id
+  LEFT JOIN test_categories c 
+    ON ct.category_id = c.category_id
+  ORDER BY 
+    c.category_name,
+    ct.sort_order,
+    t.name
 ");
+
 while ($r = $rs->fetch_assoc()) {
     $testGroups[$r['category_name']][] = $r;
 }
@@ -74,18 +81,28 @@ if ($billing_id) {
 
     // Assigned tests ordered by sort_order, with profile info
     $tests_stmt = $conn->prepare("
-      SELECT
-        ta.test_id,
-        t.name AS test_name,
-        ta.assigned_via_profile,
-        COALESCE(c.category_name,'') AS category_name
-      FROM test_assignments ta
-      JOIN tests t  ON t.test_id = ta.test_id
-      LEFT JOIN test_categories c 
-        ON ta.category_id = c.category_id
-      WHERE ta.billing_id = ?
-      ORDER BY ta.sort_order ASC
-    ");
+  SELECT
+    ta.test_id,
+    t.name           AS test_name,
+    ta.assigned_via_profile,
+    COALESCE(c.category_name,'') AS category_name,
+    ct.sort_order    AS default_order
+  FROM test_assignments ta
+  JOIN tests t  
+    ON t.test_id = ta.test_id
+  LEFT JOIN test_categories c 
+    ON ta.category_id = c.category_id
+  LEFT JOIN category_tests ct 
+    ON ct.category_id = ta.category_id
+   AND ct.test_id     = ta.test_id
+  WHERE ta.billing_id = ?
+  ORDER BY 
+    -- first by your “master” category_tests order,
+    ct.sort_order     ASC,
+    -- then by any manual re-ordering in test_assignments
+    ta.sort_order     ASC
+");
+
     $tests_stmt->bind_param("i", $billing_id);
     $tests_stmt->execute();
     $res = $tests_stmt->get_result();

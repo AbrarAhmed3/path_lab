@@ -326,7 +326,7 @@ LEFT JOIN departments     AS d   ON t.department_id  = d.department_id
 LEFT JOIN test_categories AS tc  ON ta.category_id  = tc.category_id
         WHERE ta.patient_id = ?
           AND ta.billing_id = ?
-        ORDER BY d.department_name, t.name
+        ORDER BY d.department_name, ta.sort_order ASC
     ");
     $stmt3->bind_param(
         "siiiii",
@@ -600,7 +600,7 @@ function formatRange($low, $high)
                 ON tr.assignment_id = ta.assignment_id
              WHERE ta.billing_id = ?
                AND tc.category_name = 'Widal Slide Agglutination Test'
-             ORDER BY t.name, tr.id
+             ORDER BY ta.sort_order ASC, tr.id
           ");
                                 $stmt->bind_param("i", $billing_id);
                                 $stmt->execute();
@@ -774,22 +774,35 @@ function formatRange($low, $high)
         // 1) Build flat list of tests + component rows
         $rows = [];
         foreach ($catTests as $t) {
-            $rows[] = ['type' => 'test', 'data' => $t];
-            $compStmt = $conn->prepare("
-                SELECT component_label, `value`, evaluation_label
-                  FROM test_result_components
-                 WHERE assignment_id = ?
-            ");
-            $compStmt->bind_param("i", $t['assignment_id']);
-            $compStmt->execute();
-            $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-            $compStmt->close();
-            foreach ($components as $c) {
-                $c['unit']            = $t['unit'];
-                $c['test_id']         = $t['test_id'];
-                $rows[] = ['type' => 'component', 'data' => $c];
-            }
-        }
+    // ─── fetch components exactly as you already do ───
+    $compStmt = $conn->prepare("
+        SELECT component_label, `value`, evaluation_label
+          FROM test_result_components
+         WHERE assignment_id = ?
+    ");
+    $compStmt->bind_param("i", $t['assignment_id']);
+    $compStmt->execute();
+    $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $compStmt->close();
+
+    // ─── record whether this parent has components ───
+    $hasComponents = ! empty($components);
+    $rows[] = [
+      'type'           => 'test',
+      'data'           => $t,
+      'has_components' => $hasComponents
+    ];
+
+    // ─── then push each component as before ───
+    if ($hasComponents) {
+      foreach ($components as $c) {
+        $c['unit']    = $t['unit'];
+        $c['test_id'] = $t['test_id'];
+        $rows[] = ['type' => 'component', 'data' => $c];
+      }
+    }
+}
+
 
         // 2) Chunk into pages of max 23 rows
         $maxRowsPerPage = 23;
@@ -876,98 +889,105 @@ function formatRange($low, $high)
                         <tbody>
                             <?php foreach ($chunk as $row): ?>
 
-                                <?php if ($row['type'] === 'test'): 
-                                    $t = $row['data'];
-                                    $val = $t['result_value'];
-                                    $display_val = htmlspecialchars($val);
+    <?php if ($row['type'] === 'test'):
+        $t             = $row['data'];
+        $hasComponents = $row['has_components'] ?? false;
+        $showValues    = ! $hasComponents;
+        $val           = $t['result_value'];
+        $display_val   = $showValues ? htmlspecialchars($val) : '';
 
-                                    // ─── Arrow logic ───
-                                    $rrStmt = $conn->prepare("
-                                        SELECT value_low, value_high
-                                          FROM test_ranges
-                                         WHERE test_id = ?
-                                           AND (gender = ? OR gender = 'Any')
-                                           AND (age_min IS NULL OR age_min <= ?)
-                                           AND (age_max IS NULL OR age_max >= ?)
-                                           AND (
-                                                (gestation_min IS NULL AND gestation_max IS NULL)
-                                             OR (? BETWEEN gestation_min AND gestation_max)
-                                           )
-                                         ORDER BY
-                                           FIELD(range_type,'label','component','age','gender','simple'),
-                                           gestation_min DESC,
-                                           age_min       DESC
-                                         LIMIT 1
-                                    ");
-                                    $rrStmt->bind_param(
-                                        "isiii",
-                                        $t['test_id'],
-                                        $patient['gender'],
-                                        $patient['age'],
-                                        $patient['age'],
-                                        $patient['gestational_weeks']
-                                    );
-                                    $rrStmt->execute();
-                                    $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low'=>null,'value_high'=>null];
-                                    $rrStmt->close();
+        if ($showValues) {
+            // ─── Arrow logic ───
+            $rrStmt = $conn->prepare("
+                SELECT value_low, value_high
+                  FROM test_ranges
+                 WHERE test_id = ?
+                   AND (gender = ? OR gender = 'Any')
+                   AND (age_min IS NULL OR age_min <= ?)
+                   AND (age_max IS NULL OR age_max >= ?)
+                   AND (
+                        (gestation_min IS NULL AND gestation_max IS NULL)
+                     OR (? BETWEEN gestation_min AND gestation_max)
+                   )
+                 ORDER BY
+                   FIELD(range_type,'label','component','age','gender','simple'),
+                   gestation_min DESC,
+                   age_min       DESC
+                 LIMIT 1
+            ");
+            $rrStmt->bind_param(
+                "isiii",
+                $t['test_id'],
+                $patient['gender'],
+                $patient['age'],
+                $patient['age'],
+                $patient['gestational_weeks']
+            );
+            $rrStmt->execute();
+            $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low'=>null,'value_high'=>null];
+            $rrStmt->close();
 
-                                    if (is_numeric($val)) {
-                                        if ($rr['value_high'] !== null && $val > $rr['value_high']) {
-                                            $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
-                                        } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
-                                            $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
-                                        }
-                                    }
+            if (is_numeric($val)) {
+                if ($rr['value_high'] !== null && $val > $rr['value_high']) {
+                    $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
+                } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
+                    $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
+                }
+            }
 
-                                    $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
-                                ?>
-                                    <tr>
-                                        <td style="font-weight:500;">
-                                            <?= htmlspecialchars($t['test_name']) ?>
-                                            <?php if (! $allText && $t['method']): ?>
-                                                <span class="method-note">
-                                                    Method: <?= htmlspecialchars($t['method']) ?>
-                                                </span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td style="font-weight:600;">
-                                            <?= (! $allText && is_numeric($val)) ? ':' : '' ?>
-                                        </td>
-                                        <td><?= $display_val ?></td>
-                                        <?php if (! $allText): ?>
-                                            <td><?= htmlspecialchars($t['unit']) ?></td>
-                                            <td><?= $ref_display ?></td>
-                                        <?php endif; ?>
-                                    </tr>
+            $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
+        } else {
+            $ref_display = '';
+        }
+    ?>
+        <tr>
+            <td style="font-weight:500;">
+                <?= htmlspecialchars($t['test_name']) ?>
+                <?php if ($showValues && ! $allText && $t['method']): ?>
+                    <span class="method-note">
+                        Method: <?= htmlspecialchars($t['method']) ?>
+                    </span>
+                <?php endif; ?>
+            </td>
+            <td style="font-weight:600;">
+                <?= ($showValues && ! $allText && is_numeric($val)) ? ':' : '' ?>
+            </td>
+            <td><?= $display_val ?></td>
+            <?php if (! $allText): ?>
+                <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
+                <td><?= $showValues ? $ref_display : '' ?></td>
+            <?php endif; ?>
+        </tr>
 
-                                <?php else:
-                                    // component row
-                                    $c = $row['data'];
-                                    $val = htmlspecialchars($c['value']);
-                                    if (!empty($c['evaluation_label'])) {
-                                        $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
-                                    }
-                                    $ref_display = render_reference_range_html(
-                                        $c['test_id'],
-                                        $patient,
-                                        $c['value'],
-                                        $c['component_label']
-                                    );
-                                ?>
-                                    <tr>
-                                        <td style="padding-left:2rem;">
-                                            <?= htmlspecialchars($c['component_label']) ?>
-                                        </td>
-                                        <td></td>
-                                        <td><?= $val ?></td>
-                                        <?php if (! $allText): ?>
-                                            <td><?= htmlspecialchars($c['unit']) ?></td>
-                                            <td><?= $ref_display ?></td>
-                                        <?php endif; ?>
-                                    </tr>
-                                <?php endif; ?>
+    <?php else:
+        // ─── component row ───
+        $c   = $row['data'];
+        $val = htmlspecialchars($c['value']);
+        if (! empty($c['evaluation_label'])) {
+            $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
+        }
+        $ref_display = render_reference_range_html(
+            $c['test_id'],
+            $patient,
+            $c['value'],
+            $c['component_label']
+        );
+    ?>
+        <tr>
+            <td style="padding-left:2rem;">
+                <?= htmlspecialchars($c['component_label']) ?>
+            </td>
+            <td>:</td>
+            <td><?= $val ?></td>
+            <?php if (! $allText): ?>
+                <td><?= htmlspecialchars($c['unit']) ?></td>
+                <td><?= $ref_display ?></td>
+            <?php endif; ?>
+        </tr>
+    <?php endif; ?>
 
-                            <?php endforeach; ?>
+<?php endforeach; ?>
+
 
 
                                         </tbody>
@@ -1289,7 +1309,7 @@ function formatRange($low, $high)
                                 );
                             ?>
                                 <tr>
-                                    <td style="padding-left:4rem;"><?= htmlspecialchars($c['component_label']) ?></td>
+                                    <td style="padding-left:3rem;"><?= htmlspecialchars($c['component_label']) ?></td>
                                     <td>:</td>
                                     <td><?= $val ?></td>
                                     <td><?= htmlspecialchars($c['unit']) ?></td>
