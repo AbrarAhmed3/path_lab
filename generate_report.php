@@ -623,13 +623,12 @@ function formatRange($low, $high)
                             </tbody>
                         </table>
 
-                        <p style="margin-top:20px;"><strong>NOTE :</strong> More than 1:80 dilution is significant.</p>
-                        <p><strong>Reference Index :</strong><br>Agglutination is Seen = (+)<br>
-                            Agglutination is Not Seen = (-)</p>
+                        <p class="mb-3 pl-2"style="margin-top:20px; font-size: 12px; margin-bottom:0px"><strong>NOTE :</strong> More than 1:80 dilution is significant.<br><br><strong>Reference Index :</strong><br>Agglutination is Seen = (+)<br>
+                            Agglutination is Not Seen = (-)<br><br><strong>Impression	:</strong> Rising titre in subsequent weeks are considered as affirmative.<br><br><strong>Remarks	:</strong>Widal test becomes positive in the 2nd Week of typhoid fever and and even later - a rising titre would be diagnostic. But blood culture is more confirmative.</p>
 
                         <!-- ─── OPTIONAL INSTRUMENT INFO ─── -->
                         <?php if (!empty($machine_info_map['Serology'])): ?>
-                            <div class="mb-3 pl-2"><strong>Instruments:</strong>
+                            <div class="mb-3 pl-2 machine_info_text" style="font-size: 12px;"><strong>Instruments:</strong>
                                 <?= htmlspecialchars($machine_info_map['Serology']) ?>
                             </div>
                         <?php endif; ?>
@@ -996,7 +995,7 @@ function formatRange($low, $high)
 
                                 <!-- Machine info -->
                                 <?php if (!empty($machine_info_map[$dept])): ?>
-                                    <div class="mb-3 pl-2" style="text-align: left;">
+                                    <div class="mb-3 pl-2 machine_info_text" style="text-align: left; font-size: 12px;">
                                         <strong>Instruments:</strong>
                                         <?= htmlspecialchars($machine_info_map[$dept]) ?>
                                     </div>
@@ -1207,20 +1206,41 @@ function formatRange($low, $high)
                     </div>
                 </div>
 
+                <?php
+  // ─── 0) Before rendering this chunk, see if any row has a numeric result ───
+  $allText = true;
+  foreach ($chunk as $row) {
+      // grab the value field depending on type
+      $val = $row['type'] === 'component'
+           ? $row['data']['value']
+           : $row['data']['result_value'];
+      if (is_numeric($val)) {
+          $allText = false;
+          break;
+      }
+  }
+?>
+
+
             <div class="report-body-content">
                 <h5 class="text-center text-uppercase mb-1" style="background:#f5f5f5;padding:8px;font-weight:600;">
                     <?= htmlspecialchars($dept) ?> Department
                 </h5>
                 <table class="table test-table" style="border:none;">
                     <thead>
-                        <tr style="border-bottom:1px solid #999;">
-                            <th style="font-weight:600;text-align:left;">INVESTIGATION</th>
-                            <th></th>
-                            <th style="font-weight:600;text-align:left;">RESULT</th>
-                            <th style="font-weight:600;text-align:left;">UNIT</th>
-                            <th style="font-weight:600;text-align:left;">REFERENCE RANGE</th>
-                        </tr>
-                    </thead>
+  <tr style="border-bottom:1px solid #999;">
+    <th style="font-weight:600;text-align:left;">INVESTIGATION</th>
+    <th></th>
+    <th style="font-weight:600;text-align:left;">RESULT</th>
+
+    <!-- only show these when there’s at least one numeric value -->
+    <?php if (! $allText): ?>
+      <th style="font-weight:600;text-align:left;">UNIT</th>
+      <th style="font-weight:600;text-align:left;">REFERENCE RANGE</th>
+    <?php endif; ?>
+  </tr>
+</thead>
+
                     <tbody>
                         <?php foreach ($chunk as $row): ?>
                             <?php if ($row['type'] === 'test'):
@@ -1325,7 +1345,7 @@ function formatRange($low, $high)
 
                                 <!-- Machine info -->
                                 <?php if (!empty($machine_info_map[$dept])): ?>
-                                    <div class="mb-3 pl-2" style="text-align: left;">
+                                    <div class="mb-3 pl-2 machine_info_text" style="text-align: left;font-size: 12px;">
                                         <strong>Instruments:</strong> <?= htmlspecialchars($machine_info_map[$dept]) ?>
                                     </div>
                                 <?php endif; ?>
