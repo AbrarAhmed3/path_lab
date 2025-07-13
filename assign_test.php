@@ -8,12 +8,14 @@ if (!isset($_SESSION['admin_logged_in'])) {
 include 'admin_header.php';
 include 'db.php';
 
+// ─── ONE-TIME: Ensure this column exists:
+// ALTER TABLE test_assignments ADD COLUMN sort_order INT NOT NULL DEFAULT 0;
+
 // Fetch patients
 $patients = $conn->query("SELECT patient_id, name FROM patients");
 
 // Fetch doctors
 $doctors = $conn->query("SELECT doctor_id, name FROM doctors");
-
 
 $patient_id = intval($_GET['patient_id'] ?? 0);
 $billing_id = intval($_GET['billing_id'] ?? 0);
@@ -34,9 +36,8 @@ if ($patient_id > 0 && $billing_id > 0) {
     }
 }
 
-// Group tests by category (including unmapped/uncategorized)
+// Group tests by category (including Uncategorized)
 $testGroups = [];
-
 $rs = $conn->query("
     SELECT 
         t.test_id, 
@@ -47,19 +48,23 @@ $rs = $conn->query("
     LEFT JOIN test_categories c ON ct.category_id = c.category_id
     ORDER BY category_name, test_name
 ");
-
 while ($r = $rs->fetch_assoc()) {
     $testGroups[$r['category_name']][] = $r;
 }
 
-
-$assigned_tests = [];
+$assigned_tests  = [];
 $current_billing = null;
-$bstatus = null;
+$bstatus         = null;
 
-// Load billing info
+// Load billing info + assigned tests in sort_order
 if ($billing_id) {
-    $stmt = $conn->prepare("SELECT billing.*, p.name FROM billing JOIN patients p ON billing.patient_id = p.patient_id WHERE billing.billing_id = ?");
+    // Billing row
+    $stmt = $conn->prepare("
+        SELECT b.*, p.name AS patient_name 
+          FROM billing b 
+          JOIN patients p ON b.patient_id = p.patient_id 
+         WHERE b.billing_id = ?
+    ");
     $stmt->bind_param("i", $billing_id);
     $stmt->execute();
     $current_billing = $stmt->get_result()->fetch_assoc();
@@ -67,138 +72,217 @@ if ($billing_id) {
 
     $bstatus = $current_billing['bstatus'] ?? 'pending';
 
-    $tests_stmt = $conn->prepare("SELECT ta.test_id, t.name FROM test_assignments ta JOIN tests t ON t.test_id = ta.test_id WHERE ta.billing_id = ?");
+    // Assigned tests ordered by sort_order, with profile info
+    $tests_stmt = $conn->prepare("
+      SELECT
+        ta.test_id,
+        t.name AS test_name,
+        ta.assigned_via_profile,
+        COALESCE(c.category_name,'') AS category_name
+      FROM test_assignments ta
+      JOIN tests t  ON t.test_id = ta.test_id
+      LEFT JOIN test_categories c 
+        ON ta.category_id = c.category_id
+      WHERE ta.billing_id = ?
+      ORDER BY ta.sort_order ASC
+    ");
     $tests_stmt->bind_param("i", $billing_id);
     $tests_stmt->execute();
-    $results = $tests_stmt->get_result();
-    while ($row = $results->fetch_assoc()) {
-        $assigned_tests[$row['test_id']] = $row['name'];
+    $res = $tests_stmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $assigned_tests[] = $row;
     }
     $tests_stmt->close();
 }
 
 // Handle form submission
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    $patient_id       = intval($_POST['patient_id']);
+    $billing_id       = intval($_POST['billing_id'] ?? 0);
+    $action           = $_POST['action'] ?? '';
+    $referred_by      = is_numeric($_POST['referred_by'] ?? '') ? intval($_POST['referred_by']) : null;
+    $individual_tests = $_POST['tests_individual'] ?? [];
+    $profile_tests    = $_POST['tests_profile']    ?? [];
+    $category_ids     = $_POST['category_ids']     ?? [];
 
-    $category_ids   = $_POST['category_ids']   ?? [];
-$individual     = $_POST['tests_individual'] ?? [];
-$profile_tests  = $_POST['tests_profile']  ?? [];
-
-
-    $patient_id = $_POST['patient_id'];
-    $billing_id = $_POST['billing_id'] ?? null;
-    $selected_tests = $_POST['tests'] ?? [];
-    $referred_by = $_POST['referred_by'] ?? null;
-    $action = $_POST['action'];
-
-    if ($action === 'new_visit') {
-        $stmt = $conn->prepare("INSERT INTO billing (patient_id, total_amount, paid_amount, balance_amount, bstatus, visit_note, referred_by) VALUES (?, 0, 0, 0, 'pending', 'New visit', ?)");
-        $stmt->bind_param("ii", $patient_id, $referred_by);
-        $stmt->execute();
-        $billing_id = $stmt->insert_id;
+    // 1) Handle reordering
+    if ($action === 'reorder_tests' || isset($_POST['test_order'])) {
+        $ids = array_filter(explode(',', $_POST['test_order'] ?? ''));
+        $upd = $conn->prepare("
+            UPDATE test_assignments
+               SET sort_order = ?
+             WHERE billing_id = ? AND test_id = ?
+        ");
+        $order = 1;
+        foreach ($ids as $tid) {
+            $upd->bind_param("iii", $order, $billing_id, $tid);
+            $upd->execute();
+            $order++;
+        }
+        $upd->close();
+        header("Location: assign_test.php?patient_id=$patient_id&billing_id=$billing_id");
+        exit();
     }
 
-    if ($action === 'assign_tests') {
-
-        $individual_tests = $_POST['tests_individual'] ?? [];
-        $profile_tests    = $_POST['tests_profile'] ?? [];
-
-        $all_tests = [];
-
-        foreach ($individual_tests as $test_id) {
-            $all_tests[] = ['test_id' => $test_id, 'profile' => 0];
-        }
-        foreach ($profile_tests as $test_id) {
-            $all_tests[] = ['test_id' => $test_id, 'profile' => 1];
-        }
-
-        // Remove already assigned test_ids
-        $already_assigned_ids = array_keys($assigned_tests);
-        $filtered_tests = array_filter($all_tests, fn($t) => !in_array($t['test_id'], $already_assigned_ids));
-
-        foreach ($filtered_tests as $test) {
-    if ($test['profile'] == 1) {
-        // figure out which selected category this test belongs to
-        $assignedCat = null;
-        foreach ($category_ids as $cat) {
-            $chk = $conn->prepare(
-              "SELECT 1 FROM category_tests 
-                 WHERE category_id = ? AND test_id = ?"
-            );
-            $chk->bind_param("ii", $cat, $test['test_id']);
-            $chk->execute();
-            $chk->store_result();
-            if ($chk->num_rows) {
-                $assignedCat = $cat;
-                $chk->close();
-                break;
-            }
-            $chk->close();
-        }
-
-        $stmt = $conn->prepare(
-          "INSERT INTO test_assignments 
-             (patient_id,billing_id,test_id,assigned_via_profile,category_id) 
-           VALUES (?,?,?,?,?)"
-        );
-        $stmt->bind_param("iiiii",
-          $patient_id,
-          $billing_id,
-          $test['test_id'],
-          $test['profile'],
-          $assignedCat
-        );
+// 2) New visit logic
+if ($action === 'new_visit') {
+    // Insert billing
+    if ($referred_by !== null) {
+        $stmt = $conn->prepare("
+            INSERT INTO billing
+              (patient_id, total_amount, paid_amount, balance_amount, bstatus, visit_note, referred_by)
+            VALUES (?, 0, 0, 0, 'pending', 'New visit', ?)
+        ");
+        $stmt->bind_param("ii", $patient_id, $referred_by);
     } else {
-        // individual tests still go in without a category
-        $stmt = $conn->prepare(
-          "INSERT INTO test_assignments 
-             (patient_id,billing_id,test_id,assigned_via_profile) 
-           VALUES (?,?,?,?)"
-        );
-        $stmt->bind_param("iiii",
-          $patient_id,
-          $billing_id,
-          $test['test_id'],
-          $test['profile']
-        );
+        $stmt = $conn->prepare("
+            INSERT INTO billing
+              (patient_id, total_amount, paid_amount, balance_amount, bstatus, visit_note, referred_by)
+            VALUES (?, 0, 0, 0, 'pending', 'New visit', NULL)
+        ");
+        $stmt->bind_param("i", $patient_id);
     }
     $stmt->execute();
+    $billing_id = $stmt->insert_id;
     $stmt->close();
+
+    // **Redirect to load the new visit and show its status properly**
+    header("Location: assign_test.php?patient_id={$patient_id}&billing_id={$billing_id}");
+    exit();
 }
 
 
+    // 3) Assign tests with duplicate-prevention + sort_order
+    if ($action === 'assign_tests') {
+        // Fetch existing test_ids
+        $existing = [];
+        $exStmt = $conn->prepare("
+          SELECT test_id
+            FROM test_assignments
+           WHERE billing_id = ?
+        ");
+        $exStmt->bind_param("i", $billing_id);
+        $exStmt->execute();
+        $exRes = $exStmt->get_result();
+        while ($r = $exRes->fetch_assoc()) {
+            $existing[] = (int)$r['test_id'];
+        }
+        $exStmt->close();
 
-
-        // Only allow assignment if billing status is still pending
-        $check = $conn->prepare("SELECT bstatus FROM billing WHERE billing_id = ?");
-        $check->bind_param("i", $billing_id);
-        $check->execute();
-        $check->bind_result($check_status);
-        $check->fetch();
-        $check->close();
-
-        if ($check_status === 'paid') {
-            die("Test assignment not allowed. Billing is already marked as 'paid'.");
+        // Combine UI order
+        $all = [];
+        foreach ($individual_tests as $tid) {
+            $all[] = ['test_id' => (int)$tid, 'profile' => 0];
+        }
+        foreach ($profile_tests as $tid) {
+            $all[] = ['test_id' => (int)$tid, 'profile' => 1];
         }
 
+        // Filter out duplicates
+        $to_insert = array_filter($all, fn($t) => !in_array($t['test_id'], $existing, true));
 
+        if (empty($to_insert)) {
+            // nothing new to insert
+            header("Location: assign_test.php?patient_id=$patient_id&billing_id=$billing_id&duplicate=1");
+            exit();
+        }
 
+        // Fetch current max sort_order
+        $mxStmt = $conn->prepare("
+            SELECT COALESCE(MAX(sort_order),0) AS max_sort
+              FROM test_assignments
+             WHERE billing_id = ?
+        ");
+        $mxStmt->bind_param("i", $billing_id);
+        $mxStmt->execute();
+        $mxRes = $mxStmt->get_result();
+        $mxRow = $mxRes->fetch_assoc();
+        $mxStmt->close();
+        $order = ((int)$mxRow['max_sort']) + 1;
 
-        // Update referred doctor
-        $stmt = $conn->prepare("UPDATE billing SET referred_by = ? WHERE billing_id = ?");
-        $stmt->bind_param("ii", $referred_by, $billing_id);
-        $stmt->execute();
+        // Insert each new test
+        foreach ($to_insert as $test) {
+            $tid = $test['test_id'];
+            $via = $test['profile'];
 
-        // Update status to assigned
-        $stmt = $conn->prepare("UPDATE billing SET bstatus = 'assigned' WHERE billing_id = ?");
-        $stmt->bind_param("i", $billing_id);
-        $stmt->execute();
+            if ($via === 1) {
+                // profile-based: find category
+                $assignedCat = null;
+                foreach ($category_ids as $c) {
+                    $chk = $conn->prepare("
+                      SELECT 1
+                        FROM category_tests
+                       WHERE category_id = ? AND test_id = ?
+                    ");
+                    $chk->bind_param("ii", $c, $tid);
+                    $chk->execute();
+                    $chk->store_result();
+                    if ($chk->num_rows) {
+                        $assignedCat = $c;
+                        $chk->close();
+                        break;
+                    }
+                    $chk->close();
+                }
+                $ins = $conn->prepare("
+                    INSERT INTO test_assignments
+                      (patient_id, billing_id, test_id, assigned_via_profile, category_id, sort_order)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ");
+                $ins->bind_param(
+                    "iiiiii",
+                    $patient_id,
+                    $billing_id,
+                    $tid,
+                    $via,
+                    $assignedCat,
+                    $order
+                );
+            } else {
+                // individual
+                $ins = $conn->prepare("
+                    INSERT INTO test_assignments
+                      (patient_id, billing_id, test_id, assigned_via_profile, sort_order)
+                    VALUES (?, ?, ?, ?, ?)
+                ");
+                $ins->bind_param(
+                    "iiiii",
+                    $patient_id,
+                    $billing_id,
+                    $tid,
+                    $via,
+                    $order
+                );
+            }
+
+            $ins->execute();
+            $ins->close();
+            $order++;
+        }
+
+        // Update referred_by
+        if ($referred_by !== null) {
+            $u = $conn->prepare("UPDATE billing SET referred_by = ? WHERE billing_id = ?");
+            $u->bind_param("ii", $referred_by, $billing_id);
+        } else {
+            $u = $conn->prepare("UPDATE billing SET referred_by = NULL WHERE billing_id = ?");
+            $u->bind_param("i", $billing_id);
+        }
+        $u->execute();
+        $u->close();
+
+        // Mark assigned
+        $u2 = $conn->prepare("UPDATE billing SET bstatus = 'assigned' WHERE billing_id = ?");
+        $u2->bind_param("i", $billing_id);
+        $u2->execute();
+        $u2->close();
+
+        header("Location: assign_test.php?patient_id=$patient_id&billing_id=$billing_id&assigned=success");
+        exit();
     }
-
-    header("Location: assign_test.php?patient_id=$patient_id&billing_id=$billing_id&assigned=success");
-    exit;
 }
 ?>
+
 
 
 <!DOCTYPE html>
@@ -208,6 +292,8 @@ $profile_tests  = $_POST['tests_profile']  ?? [];
     <title>Assign Tests to Patient</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
     <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://code.jquery.com/ui/1.12.1/themes/base/jquery-ui.css" />
+
     <style>
         body {
             background-color: #f4f7fc;
@@ -325,6 +411,18 @@ $profile_tests  = $_POST['tests_profile']  ?? [];
             font-size: 0.95rem;
             border-radius: 20px;
         }
+
+        /* make the whole list-item show a grab-hand */
+        #assigned-tests .list-group-item,
+        #assigned-tests-list li {
+            cursor: grab;
+        }
+
+        /* while the user is actively clicking/dragging */
+        #assigned-tests .list-group-item:active,
+        #assigned-tests-list li:active {
+            cursor: grabbing;
+        }
     </style>
 </head>
 
@@ -402,79 +500,165 @@ $profile_tests  = $_POST['tests_profile']  ?? [];
 
                     </h5>
 
-                    <?php if (!empty($assigned_tests)): ?>
-                        <h6 class="mt-3">✅ Already Assigned Tests <small class="text-muted">(<?= date('d-m-Y', strtotime($current_billing['billing_date'])) ?>)</small>:</h6>
-                        <ul class="assigned-tests">
-                            <?php foreach ($assigned_tests as $name): ?>
-                                <li><span class="badge badge-success mr-2">✔</span> <?= htmlspecialchars($name) ?></li>
-                            <?php endforeach; ?>
-                        </ul>
-                    <?php endif; ?>
+                    <h6 class="mt-4"><i class="fas fa-arrows-alt"></i>Manage Tests</h6>
+                    <div class="row">
+                        <!-- Left: reorder -->
+                        <div class="col-lg-6">
+                            <?php if (in_array($bstatus, ['pending', 'assigned'])): ?>
+                                <form method="POST">
+                                    <input type="hidden" name="action" value="assign_tests">
+                                    <input type="hidden" name="patient_id" value="<?= $patient_id ?>">
+                                    <input type="hidden" name="billing_id" value="<?= $billing_id ?>">
 
-                    <?php if (in_array($bstatus, ['pending', 'assigned'])): ?>
-                        <form method="POST">
-                            <input type="hidden" name="patient_id" value="<?= $patient_id ?>">
-                            <input type="hidden" name="billing_id" value="<?= $billing_id ?>">
-                            <input type="hidden" name="action" value="assign_tests">
+                                    <div class="form-group">
+                                        <label>Referred By</label>
+                                        <select name="referred_by" class="form-control js-select-doctor" required>
+                                            <option value="">-- Select Doctor --</option>
+                                            <?php mysqli_data_seek($doctors, 0);
+                                            while ($d = $doctors->fetch_assoc()): ?>
+                                                <option value="<?= $d['doctor_id'] ?>"
+                                                    <?= $current_billing['referred_by'] == $d['doctor_id'] ? 'selected' : '' ?>>
+                                                    <?= htmlspecialchars($d['name']) ?>
+                                                </option>
+                                            <?php endwhile; ?>
+                                        </select>
+                                    </div>
 
-                            <div class="form-group">
-                                <label>Referred By</label>
-                                <select name="referred_by" class="form-control js-select-doctor" required>
-                                    <option value="">-- Select Doctor --</option>
-                                    <?php mysqli_data_seek($doctors, 0);
-                                    while ($d = $doctors->fetch_assoc()): ?>
-                                        <option value="<?= $d['doctor_id'] ?>" <?= ($current_billing['referred_by'] == $d['doctor_id']) ? 'selected' : '' ?>>
-                                            <?= htmlspecialchars($d['name']) ?>
-                                        </option>
-                                    <?php endwhile; ?>
-                                </select>
-                            </div>
+                                    <div class="form-group">
+                                        <label>Select Test Profiles (Categories)</label>
+                                        <select name="category_ids[]" id="category_select"
+                                            class="form-control js-select-category" multiple>
+                                            <?php
+                                            $cats = $conn->query("SELECT * FROM test_categories");
+                                            while ($c = $cats->fetch_assoc()):
+                                            ?>
+                                                <option value="<?= $c['category_id'] ?>">
+                                                    <?= htmlspecialchars($c['category_name']) ?>
+                                                </option>
+                                            <?php endwhile; ?>
+                                        </select>
+                                    </div>
 
-                            <div class="form-group">
-                                <label>Select Test Profiles (Categories)</label>
-                                <select name="category_ids[]" id="category_select" class="form-control js-select-category" multiple>
+                                    <div id="category_test_list" class="mb-4">
+                                        <!-- AJAX-loaded profile tests… -->
+                                    </div>
 
                                     <?php
-                                    $categories = $conn->query("SELECT * FROM test_categories");
-                                    while ($cat = $categories->fetch_assoc()) {
-                                        echo "<option value='{$cat['category_id']}'>{$cat['category_name']}</option>";
-                                    }
+                                    // Before your <select>, build a simple array of assigned IDs:
+                                    $assignedIds = array_map(
+                                        fn($r) => (int)$r['test_id'],
+                                        $assigned_tests
+                                    );
                                     ?>
-                                </select>
-                            </div>
-                            <div id="category_test_list" class="mb-4">
-                                <!-- AJAX-loaded profile tests will appear here -->
-                            </div>
 
+                                    <div class="form-group">
+                                        <label>Add More Tests</label>
+                                        <select name="tests_individual[]" class="form-control js-select-tests" multiple>
+                                            <?php foreach ($testGroups as $category => $tests): ?>
+                                                <optgroup label="<?= htmlspecialchars($category) ?>">
+                                                    <?php foreach ($tests as $t):
+                                                        $tid     = (int)$t['test_id'];
+                                                        $disabled = in_array($tid, $assignedIds, true) ? 'disabled style="color:#ccc;"' : '';
+                                                    ?>
+                                                        <option value="<?= $tid ?>" <?= $disabled ?>>
+                                                            <?= htmlspecialchars($t['test_name']) ?>
+                                                            <?php if ($disabled): ?>(already assigned)<?php endif; ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
 
-
-
-                            <div class="form-group">
-                                <label>Add More Tests</label>
-                                <select name="tests_individual[]" class="form-control js-select-tests" multiple>
-                                    <?php foreach ($testGroups as $category => $tests): ?>
-                                        <optgroup label="<?= htmlspecialchars($category) ?>">
-                                            <?php foreach ($tests as $test): ?>
-                                                <?php if (!isset($assigned_tests[$test['test_id']])): ?>
-                                                    <option value="<?= $test['test_id'] ?>"><?= $test['test_name'] ?></option>
-                                                <?php endif; ?>
+                                                </optgroup>
                                             <?php endforeach; ?>
-                                        </optgroup>
-                                    <?php endforeach; ?>
-                                </select>
-                            </div>
+                                        </select>
+                                    </div>
 
-                            <div class="text-right">
-                                <button type="submit" class="btn btn-success">➕ Assign Tests</button>
-                                <a href="billing.php?patient_id=<?= $patient_id ?>&billing_id=<?= $billing_id ?>" class="btn btn-secondary">💳 Go to Billing</a>
-                            </div>
-                        </form>
-                    <?php else: ?>
-                        <form method="POST">
-                            <input type="hidden" name="patient_id" value="<?= $patient_id ?>">
-                            <button type="submit" name="action" value="new_visit" class="btn btn-primary">➕ Start Fresh Visit</button>
-                        </form>
-                    <?php endif; ?>
+
+                                    <div class="text-right">
+                                        <button type="submit" class="btn btn-success">
+                                            <i class="fas fa-plus mr-1"></i> Assign Tests
+                                        </button>
+                                        <a href="billing.php?patient_id=<?= $patient_id ?>&billing_id=<?= $billing_id ?>"
+                                            class="btn btn-secondary ml-2">
+                                            <i class="fas fa-credit-card mr-1"></i> Go to Billing
+                                        </a>
+                                    </div>
+                                </form>
+                            <?php else: ?>
+                                <form method="POST">
+                                    <input type="hidden" name="patient_id" value="<?= $patient_id ?>">
+                                    <button type="submit" name="action" value="new_visit" class="btn btn-primary">
+                                        ➕ Start Fresh Visit
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- Right: assign more -->
+                        <?php
+                        // 1) After loading your assigned tests into $assigned_tests (each row having
+                        //    ['test_id'], ['test_name'], ['category_name'], ['sort_order'], etc),
+                        //    regroup them by category:
+
+                        $assigned_by_cat = [];
+                        foreach ($assigned_tests as $row) {
+                            $cat = $row['category_name'] ?: 'Individual tests';
+                            $assigned_by_cat[$cat][] = $row;
+                        }
+                        ?>
+
+                        <div class="col-lg-6 mb-4">
+                            <form id="reorderForm" method="POST">
+                                <input type="hidden" name="action" value="reorder_tests">
+                                <input type="hidden" name="patient_id" value="<?= $patient_id ?>">
+                                <input type="hidden" name="billing_id" value="<?= $billing_id ?>">
+                                <input type="hidden" name="test_order" id="test_order" value="">
+
+                                <div class="card">
+                                    <div class="card-header bg-info text-white">
+                                        <i class="fas fa-list-ol mr-2"></i>
+                                        Drag to Reorder Tests
+                                    </div>
+                                    <ul
+                                        id="assigned-tests"
+                                        class="list-group list-group-flush connectedSortable"
+                                        style="max-height:300px; overflow-y:auto;">
+                                        <?php if (empty($assigned_by_cat)): ?>
+                                            <li class="list-group-item text-center text-muted">
+                                                No tests assigned.
+                                            </li>
+                                        <?php else: ?>
+                                            <?php foreach ($assigned_by_cat as $category => $tests): ?>
+                                                <!-- Category Header (not draggable) -->
+                                                <li class="list-group-item bg-light font-weight-bold category-header">
+                                                    <?= htmlspecialchars($category) ?>
+                                                </li>
+
+                                                <!-- Individual tests (draggable) -->
+                                                <?php foreach ($tests as $row): ?>
+                                                    <li
+                                                        class="list-group-item test-item d-flex align-items-center"
+                                                        data-test-id="<?= $row['test_id'] ?>">
+                                                        <span class="drag-handle mr-3 text-muted">
+                                                            <i class="fas fa-grip-vertical"></i>
+                                                        </span>
+                                                        <span class="flex-grow-1">
+                                                            <?= htmlspecialchars($row['test_name']) ?>
+                                                        </span>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            <?php endforeach; ?>
+                                        <?php endif; ?>
+                                    </ul>
+                                </div><!-- /.card -->
+
+                                <div class="text-right mt-2">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="fas fa-save mr-1"></i> Save Test Order
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
                 <?php endif; ?>
             </div>
         </div>
@@ -483,6 +667,8 @@ $profile_tests  = $_POST['tests_profile']  ?? [];
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script src="https://code.jquery.com/ui/1.12.1/jquery-ui.min.js"></script>
+
     <script>
         $(document).ready(function() {
             $('.js-select-patient').select2({
@@ -516,6 +702,25 @@ $profile_tests  = $_POST['tests_profile']  ?? [];
                         selectEl.val(selected).trigger('change');
                     });
                 }, 0);
+            });
+        });
+    </script>
+    <script>
+        $(function() {
+            // Only make the .test-item rows draggable
+            $('#assigned-tests').sortable({
+                items: '.test-item',
+                placeholder: 'ui-state-highlight'
+            }).disableSelection();
+
+
+            // Serialize the new order before submitting
+            $('#reorderForm').on('submit', function() {
+                const order = $('#assigned-tests .test-item')
+                    .map((i, el) => $(el).data('test-id'))
+                    .get()
+                    .join(',');
+                $('#test_order').val(order);
             });
         });
     </script>
