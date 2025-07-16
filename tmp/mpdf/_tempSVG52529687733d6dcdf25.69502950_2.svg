@@ -1,0 +1,6 @@
+<svg class="barcode"
+                                                jsbarcode-value="Bill: 120 | 2025-07-16"
+                                                jsbarcode-format="CODE128"
+                                                jsbarcode-width="1.5"
+                                                jsbarcode-height="40"
+                                                jsbarcode-fontSize="10"></svg>

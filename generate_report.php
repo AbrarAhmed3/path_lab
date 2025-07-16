@@ -4,11 +4,13 @@ if (!isset($_SESSION['admin_logged_in'])) {
     header('Location: admin_login.php');
     exit();
 }
+
 include 'admin_header.php';
 include 'db.php';
 
 $patient_id = isset($_GET['patient_id']) ? intval($_GET['patient_id']) : null;
 $billing_id = isset($_GET['billing_id']) ? intval($_GET['billing_id']) : null;
+
 
 
 // ─────────────────────────────────────────────────
@@ -509,6 +511,15 @@ function formatRange($low, $high)
 
                 <button class="btn btn-info" onclick="downloadPDF()">⬇ Download PDF</button>
                 <button class="btn btn-primary ml-2" onclick="printReport()">🖨 Print</button>
+                <button
+  class="btn btn-primary ml-2"
+  onclick="window.open(
+    'print_report.php?patient_id=<?= $patient_id ?>&billing_id=<?= $billing_id ?>&pdf=1',
+    '_blank'
+  )"
+>
+  🖨 Download PDF
+</button>
             <?php endif; ?>
         </div>
 
@@ -527,7 +538,6 @@ function formatRange($low, $high)
                 }
             });
         </script>
-
         <div id="print-area">
             <?php if ($patient && $billing_id): ?>
                 <!-- widal test start -->
@@ -537,7 +547,7 @@ function formatRange($low, $high)
 
                         <!-- ─── HEADER IDENTICAL TO OTHER DEPTS ─── -->
                         <!-- Header Info -->
-                        <div class="row mb-1 align-items-center" style="flex-wrap: nowrap;">
+                        <div class="row align-items-center" style="flex-wrap: nowrap;">
                             <div class="col-md-4 pr-2" style="font-size: 13px;">
                                 <strong>Patient Name:</strong> <?= $patient['name'] ?><br>
                                 <strong>Sex / Age:</strong> <?= $patient['gender'] ?>/<?= $patient['age'] ?><br>
@@ -826,7 +836,7 @@ function formatRange($low, $high)
 
                 <!-- Header Info (omitted for brevity) -->
                                  <!-- Header Info -->
-                <div class="row mb-4 align-items-center" style="flex-wrap: nowrap;">
+                <div class="row align-items-center" style="flex-wrap: nowrap;">
                     <div class="col-md-4 pr-2" style="font-size: 13px;">
                         <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
                         <strong>Sex / Age:</strong> <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
@@ -1168,7 +1178,7 @@ function formatRange($low, $high)
             <div class="watermark">HDCP</div>
 
             <!-- header omitted for brevity… -->
-             <div class="row mb-1 align-items-center" style="flex-wrap: nowrap;">
+             <div class="row align-items-center" style="flex-wrap: nowrap;">
                     <div class="col-md-4 pr-2" style="font-size: 13px;">
                         <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
                         <strong>Sex / Age:</strong> <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
@@ -1455,13 +1465,13 @@ function formatRange($low, $high)
 
 
                 <?php endforeach; ?>
+                
 
             <?php endif; ?>
         </div>
 
 
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
     <script>
         document.querySelectorAll("canvas[id^='qr-code-']").forEach(canvas => {
@@ -1481,8 +1491,6 @@ function formatRange($low, $high)
             });
         });
     </script>
-
-
     <script>
         document.querySelectorAll(".barcode").forEach(svg => JsBarcode(svg).init());
 
@@ -1513,7 +1521,6 @@ function formatRange($low, $high)
                 markReportAsFinished(<?= $billing_id ?>);
             });
         }
-
         function printReport() {
             const el = document.getElementById('print-area');
             html2pdf().set({
@@ -1551,7 +1558,6 @@ function formatRange($low, $high)
                 };
             });
         }
-
         function markReportAsFinished(billingId) {
             fetch('mark_report_finished.php', {
                     method: 'POST',
@@ -1610,5 +1616,4 @@ function formatRange($low, $high)
             });
         }
     </script>
-
     <?php include 'admin_footer.php'; ?>

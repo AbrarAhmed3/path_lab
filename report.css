@@ -136,7 +136,7 @@
                 flex-direction: column;
                 justify-content: space-between;
                 height: 1123px;
-                padding: 144px 20px 96px 20px;
+                padding: 180px 20px 80px 20px;
                 background: #fff;
                 border: 1px solid #ccc;
                 border-radius: 6px;
@@ -154,7 +154,7 @@
             justify-content: space-between;
             height: 1123px;
             /* A4 height at 96dpi */
-            padding: 144px 20px 96px 20px;
+            padding: 180px 20px 80px 20px;
             /* 1.5 inch top, 1 inch bottom */
             background: #fff;
             border: 1px solid #ccc;
@@ -201,7 +201,7 @@
                 right: 0;
                 padding: 10px 20px;
                 background: white;
-                border-top: 1px solid #ccc;
+                border-top: 1px solid white;
                 font-size: 12px;
                 page-break-inside: avoid;
             }
