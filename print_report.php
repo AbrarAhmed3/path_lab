@@ -1184,5 +1184,9 @@ $html = ob_get_clean();
 
 // 5) Write & output PDF
 $mpdf->WriteHTML($html, \Mpdf\HTMLParserMode::HTML_BODY);
-$mpdf->Output("Report_{$billing_id}.pdf", \Mpdf\Output\Destination::INLINE);
+$dest = isset($_GET['download'])
+      ? \Mpdf\Output\Destination::DOWNLOAD
+      : \Mpdf\Output\Destination::INLINE;
+
+$mpdf->Output("Patient_report_ID_{$patient_id}_BN_{$billing_id}.pdf", $dest);
 exit;

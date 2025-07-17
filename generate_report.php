@@ -57,11 +57,16 @@ $results_by_department = [];
  */
 function format_bracket($low, $high)
 {
-    if ($low === null && $high === null) $inner = '-';
-    elseif ($low === null)                   $inner = "< {$high}";
-    elseif ($high === null)                  $inner = "> {$low}";
-    elseif ($low == $high)                   $inner = "{$low}";
-    else                                      $inner = "{$low} - {$high}";
+    if ($low === null && $high === null)
+        $inner = '-';
+    elseif ($low === null)
+        $inner = "< {$high}";
+    elseif ($high === null)
+        $inner = "> {$low}";
+    elseif ($low == $high)
+        $inner = "{$low}";
+    else
+        $inner = "{$low} - {$high}";
     return "[ {$inner} ]";
 }
 
@@ -176,9 +181,9 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
             OR (? BETWEEN gestation_min AND gestation_max)
            )
            " . ($component_label !== null
-        ? "AND range_type = 'component' AND condition_label = ?"
-        : ""
-    ) . "
+            ? "AND range_type = 'component' AND condition_label = ?"
+            : ""
+        ) . "
          ORDER BY
            FIELD(range_type,'component','label','age_gender','gender','simple'),
            gestation_min DESC,
@@ -248,7 +253,7 @@ if ($billing_id) {
     ");
     $stmt->bind_param("i", $billing_id);
     $stmt->execute();
-    $book_res   = $stmt->get_result();
+    $book_res = $stmt->get_result();
     $booking_on = $book_res->fetch_assoc()['booking_on'] ?? null;
     $stmt->close();
 
@@ -260,7 +265,7 @@ if ($billing_id) {
     ");
     $stmt->bind_param("i", $billing_id);
     $stmt->execute();
-    $rep_res             = $stmt->get_result();
+    $rep_res = $stmt->get_result();
     $report_generated_on = $rep_res->fetch_assoc()['finalized_on'] ?? null;
     $stmt->close();
 }
@@ -275,7 +280,7 @@ if ($patient_id && $billing_id) {
     $stmt1 = $conn->prepare("SELECT * FROM patients WHERE patient_id = ?");
     $stmt1->bind_param("i", $patient_id);
     $stmt1->execute();
-    $p_res   = $stmt1->get_result();
+    $p_res = $stmt1->get_result();
     $patient = $p_res->fetch_assoc();
     $stmt1->close();
 
@@ -287,7 +292,7 @@ if ($patient_id && $billing_id) {
     ");
     $stmt2->bind_param("i", $billing_id);
     $stmt2->execute();
-    $m_res            = $stmt2->get_result();
+    $m_res = $stmt2->get_result();
     $machine_info_map = [];
     while ($row = $m_res->fetch_assoc()) {
         $machine_info_map[$row['department_name']] = $row['machine_name'];
@@ -369,9 +374,12 @@ if (isset($results_by_department['Serology'])) {
 // ─────────────────────────────────────────────────
 function formatRange($low, $high)
 {
-    if ($low === null && $high === null) return "N/A";
-    if ($low === null)                    return "Up to $high";
-    if ($high === null)                   return "Above $low";
+    if ($low === null && $high === null)
+        return "N/A";
+    if ($low === null)
+        return "Up to $high";
+    if ($high === null)
+        return "Above $low";
     return $low == $high ? "$low" : "$low - $high";
 }
 ?>
@@ -401,7 +409,7 @@ function formatRange($low, $high)
         // ─── At the top of generate_report.php, before any HTML ───
         $selectedPatientText = '';
         if (!empty($_GET['patient_id'])) {
-            $pid = (int)$_GET['patient_id'];
+            $pid = (int) $_GET['patient_id'];
             $stmt = $conn->prepare("SELECT name FROM patients WHERE patient_id = ?");
             $stmt->bind_param("i", $pid);
             $stmt->execute();
@@ -419,14 +427,8 @@ function formatRange($low, $high)
                 <label class="mr-2">Patient:</label>
 
                 <!-- Single search box with datalist -->
-                <input
-                    type="text"
-                    id="patientSearch"
-                    class="form-control mr-2"
-                    placeholder="Type name or ID…"
-                    list="patientList"
-                    autocomplete="off"
-                    style="min-width:250px;"
+                <input type="text" id="patientSearch" class="form-control mr-2" placeholder="Type name or ID…"
+                    list="patientList" autocomplete="off" style="min-width:250px;"
                     value="<?= htmlspecialchars($selectedPatientText) ?>" />
                 <datalist id="patientList">
                     <?php
@@ -440,10 +442,7 @@ function formatRange($low, $high)
                 </datalist>
 
                 <!-- hidden field to carry the numeric patient_id -->
-                <input
-                    type="hidden"
-                    id="patient_id"
-                    name="patient_id"
+                <input type="hidden" id="patient_id" name="patient_id"
                     value="<?= htmlspecialchars($_GET['patient_id'] ?? '') ?>" />
 
                 <?php if (!empty($_GET['patient_id'])): ?>
@@ -509,23 +508,17 @@ function formatRange($low, $high)
                     <button class="btn btn-danger ml-2" onclick="unlockReport()">🔓 Unlock Report</button>
                 <?php endif; ?>
 
-                <button class="btn btn-info" onclick="downloadPDF()">⬇ Download PDF</button>
+                <button id="downloadBtn" class="btn btn-info ml-2">
+                    ⬇ Download PDF
+                </button>
+
                 <button class="btn btn-primary ml-2" onclick="printReport()">🖨 Print</button>
-                <button
-  class="btn btn-primary ml-2"
-  onclick="window.open(
-    'print_report.php?patient_id=<?= $patient_id ?>&billing_id=<?= $billing_id ?>&pdf=1',
-    '_blank'
-  )"
->
-  🖨 Download PDF
-</button>
             <?php endif; ?>
         </div>
 
         <script>
             // When you pick a suggestion from the datalist...
-            document.getElementById('patientSearch').addEventListener('input', function() {
+            document.getElementById('patientSearch').addEventListener('input', function () {
                 const val = this.value;
                 const opts = document.getElementById('patientList').options;
                 for (let i = 0; i < opts.length; i++) {
@@ -559,11 +552,8 @@ function formatRange($low, $high)
                             </div>
                             <div class="col-md-4 text-center px-1">
                                 <div class="barcode-wrapper">
-                                    <svg class="barcode"
-                                        jsbarcode-value="Bill: <?= $billing_id ?> | <?= $report_delivery ?>"
-                                        jsbarcode-format="CODE128"
-                                        jsbarcode-width="1.5"
-                                        jsbarcode-height="40"
+                                    <svg class="barcode" jsbarcode-value="Bill: <?= $billing_id ?> | <?= $report_delivery ?>"
+                                        jsbarcode-format="CODE128" jsbarcode-width="1.5" jsbarcode-height="40"
                                         jsbarcode-fontSize="10"></svg>
                                 </div>
                             </div>
@@ -620,12 +610,12 @@ function formatRange($low, $high)
                                     $widal[$r['antigen']][$r['component_label']] = $r['value'];
                                 }
                                 foreach ($widal as $antigen => $d):
-                                ?>
+                                    ?>
                                     <tr>
                                         <td><?= htmlspecialchars($antigen) ?></td>
-                                        <td> <?= htmlspecialchars($d['1:20']  ?? '-') ?></td>
-                                        <td> <?= htmlspecialchars($d['1:40']  ?? '-') ?></td>
-                                        <td> <?= htmlspecialchars($d['1:80']  ?? '-') ?></td>
+                                        <td> <?= htmlspecialchars($d['1:20'] ?? '-') ?></td>
+                                        <td> <?= htmlspecialchars($d['1:40'] ?? '-') ?></td>
+                                        <td> <?= htmlspecialchars($d['1:80'] ?? '-') ?></td>
                                         <td> <?= htmlspecialchars($d['1:160'] ?? '-') ?></td>
                                         <td> <?= htmlspecialchars($d['1:320'] ?? '-') ?></td>
                                     </tr>
@@ -633,8 +623,13 @@ function formatRange($low, $high)
                             </tbody>
                         </table>
 
-                        <p class="mb-3 pl-2"style="margin-top:20px; font-size: 12px; margin-bottom:0px"><strong>NOTE :</strong> More than 1:80 dilution is significant.<br><br><strong>Reference Index :</strong><br>Agglutination is Seen = (+)<br>
-                            Agglutination is Not Seen = (-)<br><br><strong>Impression	:</strong> Rising titre in subsequent weeks are considered as affirmative.<br><br><strong>Remarks	:</strong>Widal test becomes positive in the 2nd Week of typhoid fever and and even later - a rising titre would be diagnostic. But blood culture is more confirmative.</p>
+                        <p class="mb-3 pl-2" style="margin-top:20px; font-size: 12px; margin-bottom:0px"><strong>NOTE :</strong>
+                            More than 1:80 dilution is significant.<br><br><strong>Reference Index :</strong><br>Agglutination
+                            is Seen = (+)<br>
+                            Agglutination is Not Seen = (-)<br><br><strong>Impression :</strong> Rising titre in subsequent
+                            weeks are considered as affirmative.<br><br><strong>Remarks :</strong>Widal test becomes positive in
+                            the 2nd Week of typhoid fever and and even later - a rising titre would be diagnostic. But blood
+                            culture is more confirmative.</p>
 
                         <!-- ─── OPTIONAL INSTRUMENT INFO ─── -->
                         <?php if (!empty($machine_info_map['Serology'])): ?>
@@ -676,10 +671,10 @@ function formatRange($low, $high)
                                 $stmt->execute();
                                 $res = $stmt->get_result();
 
-                                $treated    = [];
+                                $treated = [];
                                 $nonTreated = [];
                                 while ($row = $res->fetch_assoc()) {
-                                    if ((int)$row['is_treating_doctor'] === 1) {
+                                    if ((int) $row['is_treating_doctor'] === 1) {
                                         $treated[] = $row;
                                     } else {
                                         $nonTreated[] = $row;
@@ -749,165 +744,164 @@ function formatRange($low, $high)
 
                 <!-- widal -->
 
-<?php foreach ($results_by_department as $dept => $tests): ?>
+                <?php foreach ($results_by_department as $dept => $tests): ?>
 
-    <?php
-    // ─── Serology special case: drop Widal category ───
-    if ($dept === 'Serology') {
-        $tests = array_filter($tests, function($t) {
-            return !(
-                isset($t['category_name']) &&
-                $t['category_name'] === 'Widal Slide Agglutination Test'
-            );
-        });
-        if (empty($tests)) {
-            continue;
-        }
-    }
+                    <?php
+                    // ─── Serology special case: drop Widal category ───
+                    if ($dept === 'Serology') {
+                        $tests = array_filter($tests, function ($t) {
+                            return !(
+                                isset($t['category_name']) &&
+                                $t['category_name'] === 'Widal Slide Agglutination Test'
+                            );
+                        });
+                        if (empty($tests)) {
+                            continue;
+                        }
+                    }
 
-    // ─── Partition into profile categories vs uncategorized ───
-    $categories = [];
-    $otherTests = [];
-    foreach ($tests as $t) {
-        if (!empty($t['category_name'])) {
-            $categories[$t['category_name']][] = $t;
-        } else {
-            $otherTests[] = $t;
-        }
-    }
-    ?>
+                    // ─── Partition into profile categories vs uncategorized ───
+                    $categories = [];
+                    $otherTests = [];
+                    foreach ($tests as $t) {
+                        if (!empty($t['category_name'])) {
+                            $categories[$t['category_name']][] = $t;
+                        } else {
+                            $otherTests[] = $t;
+                        }
+                    }
+                    ?>
 
-    <?php foreach ($categories as $catName => $catTests): ?>
+                    <?php foreach ($categories as $catName => $catTests): ?>
 
-        <?php
-        // 1) Build flat list of tests + component rows
-        $rows = [];
-        foreach ($catTests as $t) {
-    // ─── fetch components exactly as you already do ───
-    $compStmt = $conn->prepare("
+                        <?php
+                        // 1) Build flat list of tests + component rows
+                        $rows = [];
+                        foreach ($catTests as $t) {
+                            // ─── fetch components exactly as you already do ───
+                            $compStmt = $conn->prepare("
         SELECT component_label, `value`, evaluation_label
           FROM test_result_components
          WHERE assignment_id = ?
     ");
-    $compStmt->bind_param("i", $t['assignment_id']);
-    $compStmt->execute();
-    $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-    $compStmt->close();
+                            $compStmt->bind_param("i", $t['assignment_id']);
+                            $compStmt->execute();
+                            $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                            $compStmt->close();
 
-    // ─── record whether this parent has components ───
-    $hasComponents = ! empty($components);
-    $rows[] = [
-      'type'           => 'test',
-      'data'           => $t,
-      'has_components' => $hasComponents
-    ];
+                            // ─── record whether this parent has components ───
+                            $hasComponents = !empty($components);
+                            $rows[] = [
+                                'type' => 'test',
+                                'data' => $t,
+                                'has_components' => $hasComponents
+                            ];
 
-    // ─── then push each component as before ───
-    if ($hasComponents) {
-      foreach ($components as $c) {
-        $c['unit']    = $t['unit'];
-        $c['test_id'] = $t['test_id'];
-        $rows[] = ['type' => 'component', 'data' => $c];
-      }
-    }
-}
+                            // ─── then push each component as before ───
+                            if ($hasComponents) {
+                                foreach ($components as $c) {
+                                    $c['unit'] = $t['unit'];
+                                    $c['test_id'] = $t['test_id'];
+                                    $rows[] = ['type' => 'component', 'data' => $c];
+                                }
+                            }
+                        }
 
 
-        // 2) Chunk into pages of max 23 rows
-        $maxRowsPerPage = 23;
-        $pageChunks     = array_chunk($rows, $maxRowsPerPage);
-        ?>
+                        // 2) Chunk into pages of max 23 rows
+                        $maxRowsPerPage = 23;
+                        $pageChunks = array_chunk($rows, $maxRowsPerPage);
+                        ?>
 
-        <?php foreach ($pageChunks as $pageIndex => $chunk): ?>
+                        <?php foreach ($pageChunks as $pageIndex => $chunk): ?>
 
-            <?php
-            // 3) Detect if this entire chunk is text-only (no numeric results)
-            $allText = true;
-            foreach ($chunk as $row) {
-                if ($row['type'] === 'test' && is_numeric($row['data']['result_value'])) {
-                    $allText = false;
-                    break;
-                }
-            }
-            ?>
+                            <?php
+                            // 3) Detect if this entire chunk is text-only (no numeric results)
+                            $allText = true;
+                            foreach ($chunk as $row) {
+                                if ($row['type'] === 'test' && is_numeric($row['data']['result_value'])) {
+                                    $allText = false;
+                                    break;
+                                }
+                            }
+                            ?>
 
-            <div class="report-container report-chunk">
-                <div class="watermark">HDCP</div>
+                            <div class="report-container report-chunk">
+                                <div class="watermark">HDCP</div>
 
-                <!-- Header Info (omitted for brevity) -->
-                                 <!-- Header Info -->
-                <div class="row align-items-center" style="flex-wrap: nowrap;">
-                    <div class="col-md-4 pr-2" style="font-size: 13px;">
-                        <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
-                        <strong>Sex / Age:</strong> <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
-                        <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
-                            <strong>Pregnancy Status:</strong>
-                            Pregnant (<?= htmlspecialchars($patient['gestational_weeks']) ?> weeks)<br>
-                        <?php endif; ?>
-                        <strong>Referred By:</strong> <?= htmlspecialchars($referrerName) ?><br>
-                        <strong>Bill No:</strong> <?= 'HDC_' . htmlspecialchars($billing_id) ?>
-                    </div>
-                    <div class="col-md-4 text-center px-1">
-                        <div class="barcode-wrapper">
-                            <svg class="barcode"
-                                 jsbarcode-value="Bill: <?= htmlspecialchars($billing_id) ?> | <?= htmlspecialchars($report_delivery) ?>"
-                                 jsbarcode-format="CODE128"
-                                 jsbarcode-width="1.5"
-                                 jsbarcode-height="40"
-                                 jsbarcode-fontSize="10"></svg>
-                        </div>
-                    </div>
-                    <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
-                        <div>
-                            <strong>Patient Id:</strong> <?= 'HPI_' . htmlspecialchars($patient_id) ?><br>
-                            <strong>Booking On:</strong>
-                            <?= date('d-m-Y', strtotime($booking_on)) ?>
-                        </div>
-                        <div>
-                            <strong>Generated On:</strong>
-                            <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
-                        </div>
-                        <div>
-                            <strong>Report Delivery:</strong>
-                            <?= date('d-m-Y', strtotime($report_delivery)) ?>
-                        </div>
-                    </div>
-                </div>
+                                <!-- Header Info (omitted for brevity) -->
+                                <!-- Header Info -->
+                                <div class="row align-items-center" style="flex-wrap: nowrap;">
+                                    <div class="col-md-4 pr-2" style="font-size: 13px;">
+                                        <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
+                                        <strong>Sex / Age:</strong>
+                                        <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
+                                        <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
+                                            <strong>Pregnancy Status:</strong>
+                                            Pregnant (<?= htmlspecialchars($patient['gestational_weeks']) ?> weeks)<br>
+                                        <?php endif; ?>
+                                        <strong>Referred By:</strong> <?= htmlspecialchars($referrerName) ?><br>
+                                        <strong>Bill No:</strong> <?= 'HDC_' . htmlspecialchars($billing_id) ?>
+                                    </div>
+                                    <div class="col-md-4 text-center px-1">
+                                        <div class="barcode-wrapper">
+                                            <svg class="barcode"
+                                                jsbarcode-value="Bill: <?= htmlspecialchars($billing_id) ?> | <?= htmlspecialchars($report_delivery) ?>"
+                                                jsbarcode-format="CODE128" jsbarcode-width="1.5" jsbarcode-height="40"
+                                                jsbarcode-fontSize="10"></svg>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
+                                        <div>
+                                            <strong>Patient Id:</strong> <?= 'HPI_' . htmlspecialchars($patient_id) ?><br>
+                                            <strong>Booking On:</strong>
+                                            <?= date('d-m-Y', strtotime($booking_on)) ?>
+                                        </div>
+                                        <div>
+                                            <strong>Generated On:</strong>
+                                            <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
+                                        </div>
+                                        <div>
+                                            <strong>Report Delivery:</strong>
+                                            <?= date('d-m-Y', strtotime($report_delivery)) ?>
+                                        </div>
+                                    </div>
+                                </div>
 
-                <div class="report-body-content">
-                    <h5 class="category-heading text-uppercase mb-1"
-                        style="background:#f5f5f5;padding:8px;font-weight:600;text-align:center;">
-                        <?= htmlspecialchars($dept) ?> Department
-                    </h5>
-                    <h6 class="text-center mb-1">
-                        Report on <?= htmlspecialchars($catName) ?>
-                    </h6>
+                                <div class="report-body-content">
+                                    <h5 class="category-heading text-uppercase mb-1"
+                                        style="background:#f5f5f5;padding:8px;font-weight:600;text-align:center;">
+                                        <?= htmlspecialchars($dept) ?> Department
+                                    </h5>
+                                    <h6 class="text-center mb-1">
+                                        Report on <?= htmlspecialchars($catName) ?>
+                                    </h6>
 
-                    <table class="table test-table" style="border:none;">
-                        <thead>
-                            <tr style="border-bottom:1px solid #999;">
-                                <th style="font-weight:600;text-align:left">INVESTIGATION</th>
-                                <th></th>
-                                <th style="font-weight:600;text-align:left">RESULT</th>
-                                <?php if (! $allText): ?>
-                                    <th style="font-weight:600;text-align:left">UNIT</th>
-                                    <th style="font-weight:600;text-align:left">REFERENCE RANGE</th>
-                                <?php endif; ?>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($chunk as $row): ?>
+                                    <table class="table test-table" style="border:none;">
+                                        <thead>
+                                            <tr style="border-bottom:1px solid #999;">
+                                                <th style="font-weight:600;text-align:left">INVESTIGATION</th>
+                                                <th></th>
+                                                <th style="font-weight:600;text-align:left">RESULT</th>
+                                                <?php if (!$allText): ?>
+                                                    <th style="font-weight:600;text-align:left">UNIT</th>
+                                                    <th style="font-weight:600;text-align:left">REFERENCE RANGE</th>
+                                                <?php endif; ?>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php foreach ($chunk as $row): ?>
 
-    <?php if ($row['type'] === 'test'):
-        $t             = $row['data'];
-        $hasComponents = $row['has_components'] ?? false;
-        $showValues    = ! $hasComponents;
-        $val           = $t['result_value'];
-        $display_val   = $showValues ? htmlspecialchars($val) : '';
+                                                <?php if ($row['type'] === 'test'):
+                                                    $t = $row['data'];
+                                                    $hasComponents = $row['has_components'] ?? false;
+                                                    $showValues = !$hasComponents;
+                                                    $val = $t['result_value'];
+                                                    $display_val = $showValues ? htmlspecialchars($val) : '';
 
-        if ($showValues) {
-            // ─── Arrow logic ───
-            $rrStmt = $conn->prepare("
+                                                    if ($showValues) {
+                                                        // ─── Arrow logic ───
+                                                        $rrStmt = $conn->prepare("
                 SELECT value_low, value_high
                   FROM test_ranges
                  WHERE test_id = ?
@@ -924,78 +918,78 @@ function formatRange($low, $high)
                    age_min       DESC
                  LIMIT 1
             ");
-            $rrStmt->bind_param(
-                "isiii",
-                $t['test_id'],
-                $patient['gender'],
-                $patient['age'],
-                $patient['age'],
-                $patient['gestational_weeks']
-            );
-            $rrStmt->execute();
-            $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low'=>null,'value_high'=>null];
-            $rrStmt->close();
+                                                        $rrStmt->bind_param(
+                                                            "isiii",
+                                                            $t['test_id'],
+                                                            $patient['gender'],
+                                                            $patient['age'],
+                                                            $patient['age'],
+                                                            $patient['gestational_weeks']
+                                                        );
+                                                        $rrStmt->execute();
+                                                        $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low' => null, 'value_high' => null];
+                                                        $rrStmt->close();
 
-            if (is_numeric($val)) {
-                if ($rr['value_high'] !== null && $val > $rr['value_high']) {
-                    $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
-                } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
-                    $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
-                }
-            }
+                                                        if (is_numeric($val)) {
+                                                            if ($rr['value_high'] !== null && $val > $rr['value_high']) {
+                                                                $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
+                                                            } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
+                                                                $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
+                                                            }
+                                                        }
 
-            $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
-        } else {
-            $ref_display = '';
-        }
-    ?>
-        <tr>
-            <td style="font-weight:500;">
-                <?= htmlspecialchars($t['test_name']) ?>
-                <?php if ($showValues && ! $allText && $t['method']): ?>
-                    <span class="method-note">
-                        Method: <?= htmlspecialchars($t['method']) ?>
-                    </span>
-                <?php endif; ?>
-            </td>
-            <td style="font-weight:600;">
-                <?= ($showValues && ! $allText && is_numeric($val)) ? ':' : '' ?>
-            </td>
-            <td><?= $display_val ?></td>
-            <?php if (! $allText): ?>
-                <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
-                <td><?= $showValues ? $ref_display : '' ?></td>
-            <?php endif; ?>
-        </tr>
+                                                        $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
+                                                    } else {
+                                                        $ref_display = '';
+                                                    }
+                                                    ?>
+                                                    <tr>
+                                                        <td style="font-weight:500;">
+                                                            <?= htmlspecialchars($t['test_name']) ?>
+                                                            <?php if ($showValues && !$allText && $t['method']): ?>
+                                                                <span class="method-note">
+                                                                    Method: <?= htmlspecialchars($t['method']) ?>
+                                                                </span>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                        <td style="font-weight:600;">
+                                                            <?= ($showValues && !$allText && is_numeric($val)) ? ':' : '' ?>
+                                                        </td>
+                                                        <td><?= $display_val ?></td>
+                                                        <?php if (!$allText): ?>
+                                                            <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
+                                                            <td><?= $showValues ? $ref_display : '' ?></td>
+                                                        <?php endif; ?>
+                                                    </tr>
 
-    <?php else:
-        // ─── component row ───
-        $c   = $row['data'];
-        $val = htmlspecialchars($c['value']);
-        if (! empty($c['evaluation_label'])) {
-            $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
-        }
-        $ref_display = render_reference_range_html(
-            $c['test_id'],
-            $patient,
-            $c['value'],
-            $c['component_label']
-        );
-    ?>
-        <tr>
-            <td style="padding-left:2rem;">
-                <?= htmlspecialchars($c['component_label']) ?>
-            </td>
-            <td>:</td>
-            <td><?= $val ?></td>
-            <?php if (! $allText): ?>
-                <td><?= htmlspecialchars($c['unit']) ?></td>
-                <td><?= $ref_display ?></td>
-            <?php endif; ?>
-        </tr>
-    <?php endif; ?>
+                                                <?php else:
+                                                    // ─── component row ───
+                                                    $c = $row['data'];
+                                                    $val = htmlspecialchars($c['value']);
+                                                    if (!empty($c['evaluation_label'])) {
+                                                        $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
+                                                    }
+                                                    $ref_display = render_reference_range_html(
+                                                        $c['test_id'],
+                                                        $patient,
+                                                        $c['value'],
+                                                        $c['component_label']
+                                                    );
+                                                    ?>
+                                                    <tr>
+                                                        <td style="padding-left:2rem;">
+                                                            <?= htmlspecialchars($c['component_label']) ?>
+                                                        </td>
+                                                        <td>:</td>
+                                                        <td><?= $val ?></td>
+                                                        <?php if (!$allText): ?>
+                                                            <td><?= htmlspecialchars($c['unit']) ?></td>
+                                                            <td><?= $ref_display ?></td>
+                                                        <?php endif; ?>
+                                                    </tr>
+                                                <?php endif; ?>
 
-<?php endforeach; ?>
+                                            <?php endforeach; ?>
 
 
 
@@ -1032,7 +1026,7 @@ function formatRange($low, $high)
                                 $treated = [];
                                 $nonTreated = [];
                                 while ($docRow = $res->fetch_assoc()) {
-                                    if ((int)$docRow['is_treating_doctor'] === 1) {
+                                    if ((int) $docRow['is_treating_doctor'] === 1) {
                                         $treated[] = $docRow;
                                     } else {
                                         $nonTreated[] = $docRow;
@@ -1079,7 +1073,8 @@ function formatRange($low, $high)
                                     ?>
                                     <div class="footer-note row text-center align-items-top">
                                         <div class="col-md-3 text-center">
-                                            <canvas id="qr-code-<?= htmlspecialchars($billing_id . '-' . $pageIndex . '-' . md5($dept . $catName)) ?>"></canvas>
+                                            <canvas
+                                                id="qr-code-<?= htmlspecialchars($billing_id . '-' . $pageIndex . '-' . md5($dept . $catName)) ?>"></canvas>
                                         </div>
                                         <div class="col-md-3 text-left">
                                             <img src="uploads/signature2.png" alt="Signature" style="max-height:50px;"><br>
@@ -1088,9 +1083,8 @@ function formatRange($low, $high)
                                         </div>
                                         <div class="col-md-3 text-left">
                                             <?php if ($doc1): ?>
-                                                <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
-                                                    <img
-                                                        src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
+                                                <?php if (!empty($doc1['signature']) && (int) $doc1['is_treating_doctor'] === 1): ?>
+                                                    <img src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
                                                         alt="Signature of Dr. <?= htmlspecialchars($doc1['name']) ?>"
                                                         style="max-height:50px; margin-bottom:5px; display:block;">
                                                 <?php endif; ?>
@@ -1101,9 +1095,8 @@ function formatRange($low, $high)
                                         </div>
                                         <div class="col-md-3 text-left">
                                             <?php if ($doc2): ?>
-                                                <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
-                                                    <img
-                                                        src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
+                                                <?php if (!empty($doc2['signature']) && (int) $doc2['is_treating_doctor'] === 1): ?>
+                                                    <img src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
                                                         alt="Signature of Dr. <?= htmlspecialchars($doc2['name']) ?>"
                                                         style="max-height:50px; margin-bottom:5px; display:block;">
                                                 <?php endif; ?>
@@ -1117,153 +1110,152 @@ function formatRange($low, $high)
 
                             </div><!-- /.report-container -->
                         <?php endforeach; // end pageChunks 
-                        ?>
+                                    ?>
 
                     <?php endforeach; // end categories 
-                    ?>
+                            ?>
 
-<!-- ─── Finally: uncategorized tests on their own page (if any) ─── -->
-<?php if (!empty($otherTests)): ?>
-    <?php
-    // ─── 1) Build flat list of tests + component‐rows ───
-    $rows = [];
-    $seenAssignments = [];
+                    <!-- ─── Finally: uncategorized tests on their own page (if any) ─── -->
+                    <?php if (!empty($otherTests)): ?>
+                        <?php
+                        // ─── 1) Build flat list of tests + component‐rows ───
+                        $rows = [];
+                        $seenAssignments = [];
 
-    foreach ($otherTests as $t) {
-        if (in_array($t['assignment_id'], $seenAssignments)) {
-            continue;
-        }
-        $seenAssignments[] = $t['assignment_id'];
+                        foreach ($otherTests as $t) {
+                            if (in_array($t['assignment_id'], $seenAssignments)) {
+                                continue;
+                            }
+                            $seenAssignments[] = $t['assignment_id'];
 
-        // fetch components
-        $compStmt = $conn->prepare("
+                            // fetch components
+                            $compStmt = $conn->prepare("
             SELECT component_label, `value`, evaluation_label
               FROM test_result_components
              WHERE assignment_id = ?
         ");
-        $compStmt->bind_param("i", $t['assignment_id']);
-        $compStmt->execute();
-        $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
-        $compStmt->close();
+                            $compStmt->bind_param("i", $t['assignment_id']);
+                            $compStmt->execute();
+                            $components = $compStmt->get_result()->fetch_all(MYSQLI_ASSOC);
+                            $compStmt->close();
 
-        $hasComponents = !empty($components);
+                            $hasComponents = !empty($components);
 
-        // push the test row once
-        $rows[] = [
-            'type'           => 'test',
-            'data'           => $t,
-            'has_components' => $hasComponents
-        ];
+                            // push the test row once
+                            $rows[] = [
+                                'type' => 'test',
+                                'data' => $t,
+                                'has_components' => $hasComponents
+                            ];
 
-        // then push each component
-        if ($hasComponents) {
-            foreach ($components as $c) {
-                $c['unit']            = $t['unit'];
-                $c['test_id']         = $t['test_id'];
-                $rows[] = [
-                    'type' => 'component',
-                    'data' => $c
-                ];
-            }
-        }
-    }
+                            // then push each component
+                            if ($hasComponents) {
+                                foreach ($components as $c) {
+                                    $c['unit'] = $t['unit'];
+                                    $c['test_id'] = $t['test_id'];
+                                    $rows[] = [
+                                        'type' => 'component',
+                                        'data' => $c
+                                    ];
+                                }
+                            }
+                        }
 
-    // ─── 2) Chunk into pages ───
-    $maxRowsPerPage = 20;
-    $pageChunks     = array_chunk($rows, $maxRowsPerPage);
-    ?>
+                        // ─── 2) Chunk into pages ───
+                        $maxRowsPerPage = 20;
+                        $pageChunks = array_chunk($rows, $maxRowsPerPage);
+                        ?>
 
-    <?php foreach ($pageChunks as $pageIndex => $chunk): ?>
-        <div class="report-container report-chunk">
-            <div class="watermark">HDCP</div>
+                        <?php foreach ($pageChunks as $pageIndex => $chunk): ?>
+                            <div class="report-container report-chunk">
+                                <div class="watermark">HDCP</div>
 
-            <!-- header omitted for brevity… -->
-             <div class="row align-items-center" style="flex-wrap: nowrap;">
-                    <div class="col-md-4 pr-2" style="font-size: 13px;">
-                        <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
-                        <strong>Sex / Age:</strong> <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
-                        <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
-                            <strong>Pregnancy Status:</strong>
-                            Pregnant (<?= htmlspecialchars($patient['gestational_weeks']) ?> weeks)<br>
-                        <?php endif; ?>
-                        <strong>Referred By:</strong> <?= htmlspecialchars($referrerName) ?><br>
-                        <strong>Bill No:</strong> <?= 'HDC_' . htmlspecialchars($billing_id) ?>
-                    </div>
-                    <div class="col-md-4 text-center px-1">
-                        <div class="barcode-wrapper">
-                            <svg class="barcode"
-                                 jsbarcode-value="Bill: <?= htmlspecialchars($billing_id) ?> | <?= htmlspecialchars($report_delivery) ?>"
-                                 jsbarcode-format="CODE128"
-                                 jsbarcode-width="1.5"
-                                 jsbarcode-height="40"
-                                 jsbarcode-fontSize="10"></svg>
-                        </div>
-                    </div>
-                    <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
-                        <div>
-                            <strong>Patient Id:</strong> <?= 'HPI_' . htmlspecialchars($patient_id) ?><br>
-                            <strong>Booking On:</strong>
-                            <?= date('d-m-Y', strtotime($booking_on)) ?>
-                        </div>
-                        <div>
-                            <strong>Generated On:</strong>
-                            <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
-                        </div>
-                        <div>
-                            <strong>Report Delivery:</strong>
-                            <?= date('d-m-Y', strtotime($report_delivery)) ?>
-                        </div>
-                    </div>
-                </div>
+                                <!-- header omitted for brevity… -->
+                                <div class="row align-items-center" style="flex-wrap: nowrap;">
+                                    <div class="col-md-4 pr-2" style="font-size: 13px;">
+                                        <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
+                                        <strong>Sex / Age:</strong>
+                                        <?= htmlspecialchars($patient['gender']) ?>/<?= htmlspecialchars($patient['age']) ?><br>
+                                        <?php if ($patient['gender'] === 'Female' && $patient['is_pregnant']): ?>
+                                            <strong>Pregnancy Status:</strong>
+                                            Pregnant (<?= htmlspecialchars($patient['gestational_weeks']) ?> weeks)<br>
+                                        <?php endif; ?>
+                                        <strong>Referred By:</strong> <?= htmlspecialchars($referrerName) ?><br>
+                                        <strong>Bill No:</strong> <?= 'HDC_' . htmlspecialchars($billing_id) ?>
+                                    </div>
+                                    <div class="col-md-4 text-center px-1">
+                                        <div class="barcode-wrapper">
+                                            <svg class="barcode"
+                                                jsbarcode-value="Bill: <?= htmlspecialchars($billing_id) ?> | <?= htmlspecialchars($report_delivery) ?>"
+                                                jsbarcode-format="CODE128" jsbarcode-width="1.5" jsbarcode-height="40"
+                                                jsbarcode-fontSize="10"></svg>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 text-right pl-2" style="font-size: 13px;">
+                                        <div>
+                                            <strong>Patient Id:</strong> <?= 'HPI_' . htmlspecialchars($patient_id) ?><br>
+                                            <strong>Booking On:</strong>
+                                            <?= date('d-m-Y', strtotime($booking_on)) ?>
+                                        </div>
+                                        <div>
+                                            <strong>Generated On:</strong>
+                                            <?= $report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '' ?>
+                                        </div>
+                                        <div>
+                                            <strong>Report Delivery:</strong>
+                                            <?= date('d-m-Y', strtotime($report_delivery)) ?>
+                                        </div>
+                                    </div>
+                                </div>
 
-                <?php
-  // ─── 0) Before rendering this chunk, see if any row has a numeric result ───
-  $allText = true;
-  foreach ($chunk as $row) {
-      // grab the value field depending on type
-      $val = $row['type'] === 'component'
-           ? $row['data']['value']
-           : $row['data']['result_value'];
-      if (is_numeric($val)) {
-          $allText = false;
-          break;
-      }
-  }
-?>
+                                <?php
+                                // ─── 0) Before rendering this chunk, see if any row has a numeric result ───
+                                $allText = true;
+                                foreach ($chunk as $row) {
+                                    // grab the value field depending on type
+                                    $val = $row['type'] === 'component'
+                                        ? $row['data']['value']
+                                        : $row['data']['result_value'];
+                                    if (is_numeric($val)) {
+                                        $allText = false;
+                                        break;
+                                    }
+                                }
+                                ?>
 
 
-            <div class="report-body-content">
-                <h5 class="text-center text-uppercase mb-1" style="background:#f5f5f5;padding:8px;font-weight:600;">
-                    <?= htmlspecialchars($dept) ?> Department
-                </h5>
-                <table class="table test-table" style="border:none;">
-                    <thead>
-  <tr style="border-bottom:1px solid #999;">
-    <th style="font-weight:600;text-align:left;">INVESTIGATION</th>
-    <th></th>
-    <th style="font-weight:600;text-align:left;">RESULT</th>
+                                <div class="report-body-content">
+                                    <h5 class="text-center text-uppercase mb-1" style="background:#f5f5f5;padding:8px;font-weight:600;">
+                                        <?= htmlspecialchars($dept) ?> Department
+                                    </h5>
+                                    <table class="table test-table" style="border:none;">
+                                        <thead>
+                                            <tr style="border-bottom:1px solid #999;">
+                                                <th style="font-weight:600;text-align:left;">INVESTIGATION</th>
+                                                <th></th>
+                                                <th style="font-weight:600;text-align:left;">RESULT</th>
 
-    <!-- only show these when there’s at least one numeric value -->
-    <?php if (! $allText): ?>
-      <th style="font-weight:600;text-align:left;">UNIT</th>
-      <th style="font-weight:600;text-align:left;">REFERENCE RANGE</th>
-    <?php endif; ?>
-  </tr>
-</thead>
+                                                <!-- only show these when there’s at least one numeric value -->
+                                                <?php if (!$allText): ?>
+                                                    <th style="font-weight:600;text-align:left;">UNIT</th>
+                                                    <th style="font-weight:600;text-align:left;">REFERENCE RANGE</th>
+                                                <?php endif; ?>
+                                            </tr>
+                                        </thead>
 
-                    <tbody>
-                        <?php foreach ($chunk as $row): ?>
-                            <?php if ($row['type'] === 'test'):
-                                $t             = $row['data'];
-                                $hasComponents = $row['has_components'] ?? false;
-                                $showValues    = !$hasComponents;
+                                        <tbody>
+                                            <?php foreach ($chunk as $row): ?>
+                                                <?php if ($row['type'] === 'test'):
+                                                    $t = $row['data'];
+                                                    $hasComponents = $row['has_components'] ?? false;
+                                                    $showValues = !$hasComponents;
 
-                                // prepare display_val + ref_display
-                                $val         = $t['result_value'];
-                                $display_val = htmlspecialchars($val);
-                                if ($showValues) {
-                                    // fetch range & decorate arrows…
-                                    $rrStmt = $conn->prepare("
+                                                    // prepare display_val + ref_display
+                                                    $val = $t['result_value'];
+                                                    $display_val = htmlspecialchars($val);
+                                                    if ($showValues) {
+                                                        // fetch range & decorate arrows…
+                                                        $rrStmt = $conn->prepare("
                                         SELECT value_low, value_high
                                           FROM test_ranges
                                          WHERE test_id = ?
@@ -1280,73 +1272,73 @@ function formatRange($low, $high)
                                            age_min       DESC
                                          LIMIT 1
                                     ");
-                                    $rrStmt->bind_param(
-                                        "isiii",
-                                        $t['test_id'],
-                                        $patient['gender'],
-                                        $patient['age'],
-                                        $patient['age'],
-                                        $patient['gestational_weeks']
-                                    );
-                                    $rrStmt->execute();
-                                    $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low'=>null,'value_high'=>null];
-                                    $rrStmt->close();
+                                                        $rrStmt->bind_param(
+                                                            "isiii",
+                                                            $t['test_id'],
+                                                            $patient['gender'],
+                                                            $patient['age'],
+                                                            $patient['age'],
+                                                            $patient['gestational_weeks']
+                                                        );
+                                                        $rrStmt->execute();
+                                                        $rr = $rrStmt->get_result()->fetch_assoc() ?: ['value_low' => null, 'value_high' => null];
+                                                        $rrStmt->close();
 
-                                    if (is_numeric($val)) {
-                                        if ($rr['value_high'] !== null && $val > $rr['value_high']) {
-                                            $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
-                                        } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
-                                            $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
-                                        }
-                                    }
+                                                        if (is_numeric($val)) {
+                                                            if ($rr['value_high'] !== null && $val > $rr['value_high']) {
+                                                                $display_val = "<strong>{$display_val} <i class='fas fa-arrow-up'></i></strong>";
+                                                            } elseif ($rr['value_low'] !== null && $val < $rr['value_low']) {
+                                                                $display_val = "<strong>{$display_val} <i class='fas fa-arrow-down'></i></strong>";
+                                                            }
+                                                        }
 
-                                    $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
-                                } else {
-                                    $display_val = '';
-                                    $ref_display = '';
-                                }
-                            ?>
-                                <tr>
-                                    <td style="font-weight:500;">
-                                        <?= htmlspecialchars($t['test_name']) ?>
-                                        <?= $t['method']
-                                            ? "<span class='method-note'>Method: ".htmlspecialchars($t['method'])."</span>"
-                                            : '' ?>
-                                    </td>
+                                                        $ref_display = render_reference_range_html($t['test_id'], $patient, $val);
+                                                    } else {
+                                                        $display_val = '';
+                                                        $ref_display = '';
+                                                    }
+                                                    ?>
+                                                    <tr>
+                                                        <td style="font-weight:500;">
+                                                            <?= htmlspecialchars($t['test_name']) ?>
+                                                            <?= $t['method']
+                                                                ? "<span class='method-note'>Method: " . htmlspecialchars($t['method']) . "</span>"
+                                                                : '' ?>
+                                                        </td>
 
-                                    <!-- only show the colon when we have a value -->
-                                    <?php if ($showValues): ?>
-                                        <td style="font-weight:600;">:</td>
-                                    <?php else: ?>
-                                        <td></td>
-                                    <?php endif; ?>
+                                                        <!-- only show the colon when we have a value -->
+                                                        <?php if ($showValues): ?>
+                                                            <td style="font-weight:600;">:</td>
+                                                        <?php else: ?>
+                                                            <td></td>
+                                                        <?php endif; ?>
 
-                                    <td><?= $display_val ?></td>
-                                    <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
-                                    <td><?= $ref_display ?></td>
-                                </tr>
-                            <?php else:
-                                $c = $row['data'];
-                                $val = htmlspecialchars($c['value']);
-                                if (!empty($c['evaluation_label'])) {
-                                    $val .= " (".htmlspecialchars($c['evaluation_label']).")";
-                                }
-                                $ref_display = render_reference_range_html(
-                                    $c['test_id'],
-                                    $patient,
-                                    $c['value'],
-                                    $c['component_label']
-                                );
-                            ?>
-                                <tr>
-                                    <td style="padding-left:3rem;"><?= htmlspecialchars($c['component_label']) ?></td>
-                                    <td>:</td>
-                                    <td><?= $val ?></td>
-                                    <td><?= htmlspecialchars($c['unit']) ?></td>
-                                    <td><?= $ref_display ?></td>
-                                </tr>
-                            <?php endif; ?>
-                        <?php endforeach; ?>
+                                                        <td><?= $display_val ?></td>
+                                                        <td><?= $showValues ? htmlspecialchars($t['unit']) : '' ?></td>
+                                                        <td><?= $ref_display ?></td>
+                                                    </tr>
+                                                <?php else:
+                                                    $c = $row['data'];
+                                                    $val = htmlspecialchars($c['value']);
+                                                    if (!empty($c['evaluation_label'])) {
+                                                        $val .= " (" . htmlspecialchars($c['evaluation_label']) . ")";
+                                                    }
+                                                    $ref_display = render_reference_range_html(
+                                                        $c['test_id'],
+                                                        $patient,
+                                                        $c['value'],
+                                                        $c['component_label']
+                                                    );
+                                                    ?>
+                                                    <tr>
+                                                        <td style="padding-left:3rem;"><?= htmlspecialchars($c['component_label']) ?></td>
+                                                        <td>:</td>
+                                                        <td><?= $val ?></td>
+                                                        <td><?= htmlspecialchars($c['unit']) ?></td>
+                                                        <td><?= $ref_display ?></td>
+                                                    </tr>
+                                                <?php endif; ?>
+                                            <?php endforeach; ?>
 
 
                                         </tbody>
@@ -1381,7 +1373,7 @@ function formatRange($low, $high)
                                 $treated = [];
                                 $nonTreated = [];
                                 while ($row = $res->fetch_assoc()) {
-                                    if ((int)$row['is_treating_doctor'] === 1) {
+                                    if ((int) $row['is_treating_doctor'] === 1) {
                                         $treated[] = $row;
                                     } else {
                                         $nonTreated[] = $row;
@@ -1435,7 +1427,7 @@ function formatRange($low, $high)
                                         </div>
                                         <div class="col-md-3 text-left">
                                             <?php if ($doc1): ?>
-                                                <?php if (!empty($doc1['signature']) && (int)$doc1['is_treating_doctor'] === 1): ?>
+                                                <?php if (!empty($doc1['signature']) && (int) $doc1['is_treating_doctor'] === 1): ?>
                                                     <img src="uploads/signatures/<?= htmlspecialchars($doc1['signature']) ?>"
                                                         alt="Signature of Dr. <?= htmlspecialchars($doc1['name']) ?>"
                                                         style="max-height:50px;margin-bottom:5px;display:block;">
@@ -1447,7 +1439,7 @@ function formatRange($low, $high)
                                         </div>
                                         <div class="col-md-3 text-left">
                                             <?php if ($doc2): ?>
-                                                <?php if (!empty($doc2['signature']) && (int)$doc2['is_treating_doctor'] === 1): ?>
+                                                <?php if (!empty($doc2['signature']) && (int) $doc2['is_treating_doctor'] === 1): ?>
                                                     <img src="uploads/signatures/<?= htmlspecialchars($doc2['signature']) ?>"
                                                         alt="Signature of Dr. <?= htmlspecialchars($doc2['name']) ?>"
                                                         style="max-height:50px;margin-bottom:5px;display:block;">
@@ -1465,7 +1457,7 @@ function formatRange($low, $high)
 
 
                 <?php endforeach; ?>
-                
+
 
             <?php endif; ?>
         </div>
@@ -1494,78 +1486,72 @@ function formatRange($low, $high)
     <script>
         document.querySelectorAll(".barcode").forEach(svg => JsBarcode(svg).init());
 
-        function downloadPDF() {
-            const el = document.getElementById('print-area');
-            html2pdf().set({
-                margin: 0.5,
-                filename: 'Patient_Report_<?= $patient_id ?>_Visit_<?= $billing_id ?>.pdf',
-                image: {
-                    type: 'jpeg',
-                    quality: 1
-                },
-                html2canvas: {
-                    scale: 2,
-                    useCORS: true,
-                    logging: true
-                },
-                jsPDF: {
-                    unit: 'px',
-                    format: [794, 1123],
-                    orientation: 'portrait'
-                },
-                pagebreak: {
-                    mode: ['css', 'legacy'],
-                    avoid: ['.custom-footer']
-                }
-            }).from(el).save().then(() => {
-                markReportAsFinished(<?= $billing_id ?>);
-            });
-        }
+  document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
+
+  function downloadPDF() {
+    const btn = document.getElementById('downloadBtn');
+    const pid = <?= json_encode($patient_id) ?>;
+    const bid = <?= json_encode($billing_id) ?>;
+    const filename = `Patient_Report_${pid}_Visit_${bid}.pdf`;
+    const url = `print_report.php?patient_id=${pid}&billing_id=${bid}&download=1`;
+
+    // 1) Show spinner + disable
+    btn.disabled = true;
+    btn.innerHTML = `
+      <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+      Downloading...
+    `;
+
+    // 2) Trigger download via hidden <a>
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    // 3) Mark finished (fire‐and‐forget)
+    markReportAsFinished(<?= $billing_id ?>);
+
+    // 4) Setup restoration logic
+    let restored = false;
+    function restore() {
+      if (restored) return;
+      restored = true;
+      btn.disabled = false;
+      btn.innerHTML = '⬇ Download PDF';
+      window.removeEventListener('focus', restore);
+      clearTimeout(fallback);
+            // *** reload the page after the buffer finishes ***
+      location.reload();
+    }
+    // a) on window focus
+    window.addEventListener('focus', restore);
+    // b) fallback after 4s
+    const fallback = setTimeout(restore, 5000);
+  }
+
         function printReport() {
-            const el = document.getElementById('print-area');
-            html2pdf().set({
-                margin: 0,
-                filename: 'Patient_Report_<?= $patient_id ?>_Visit_<?= $billing_id ?>.pdf',
-                image: {
-                    type: 'jpeg',
-                    quality: 1
-                },
-                html2canvas: {
-                    scale: 2,
-                    useCORS: true,
-                    logging: true
-                },
-                jsPDF: {
-                    unit: 'px',
-                    format: [794, 1123],
-                    orientation: 'portrait'
-                },
-                pagebreak: {
-                    mode: ['css', 'legacy'],
-                    avoid: ['.custom-footer']
-                }
-            }).from(el).toPdf().get('pdf').then(pdf => {
-                const blobURL = URL.createObjectURL(pdf.output('blob'));
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = blobURL;
-                document.body.appendChild(iframe);
-                iframe.onload = () => {
-                    setTimeout(() => {
-                        iframe.contentWindow.print();
-                        markReportAsFinished(<?= $billing_id ?>);
-                    }, 500);
-                };
-            });
+            // Build the URL to your mPDF-backed print_report.php
+            const url = 'print_report.php'
+                + '?patient_id=<?= $patient_id ?>'
+                + '&billing_id=<?= $billing_id ?>'
+                + '&pdf=1';
+
+            // Open the generated PDF in a new tab/window
+            window.open(url, '_blank');
+
+            // Then mark the report as finished (just like before)
+            markReportAsFinished(<?= $billing_id ?>);
         }
         function markReportAsFinished(billingId) {
             fetch('mark_report_finished.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: 'billing_id=' + encodeURIComponent(billingId)
-                })
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'billing_id=' + encodeURIComponent(billingId)
+            })
                 .then(response => response.text())
                 .then(data => {
                     console.log('Status update:', data);
@@ -1587,12 +1573,12 @@ function formatRange($low, $high)
             }).then((result) => {
                 if (result.isConfirmed) {
                     fetch('unlock_report_status.php', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/x-www-form-urlencoded'
-                            },
-                            body: 'billing_id=' + encodeURIComponent(<?= $billing_id ?>)
-                        })
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
+                        body: 'billing_id=' + encodeURIComponent(<?= $billing_id ?>)
+                    })
                         .then(res => res.text())
                         .then(response => {
                             if (response.trim() === 'success') {
