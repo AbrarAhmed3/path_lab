@@ -160,15 +160,16 @@ $pending_count = ($pending_result && $pending_result->num_rows > 0) ? $pending_r
         📤 Reports
     </button>
     <div id="reportMenu" class="collapse <?= in_array($currentPage, [
-            'finalize_report.php','generate_report.php','reports.php',
-            'save_report.php','mark_report_finished.php',
-            'fetch_report_data.php','unlock_report_status.php'
+            'finalize_report.php','generate_report.php','saved_reports.php'
         ]) ? 'show' : '' ?>">
         <a href="finalize_report.php" class="<?= ($currentPage == 'finalize_report.php') ? 'bg-primary text-white' : '' ?>">
             ✔️ Finalize Report
         </a>
         <a href="generate_report.php" class="<?= ($currentPage == 'generate_report.php') ? 'bg-primary text-white' : '' ?>">
             🧾 Generate Report
+        </a>
+                <a href="saved_reports.php" class="<?= ($currentPage == 'saved_reports.php') ? 'bg-primary text-white' : '' ?>">
+            🗂️  Saved Reports
         </a>
     </div>
 
@@ -181,9 +182,8 @@ $pending_count = ($pending_result && $pending_result->num_rows > 0) ? $pending_r
         🧪 Test Management
     </button>
     <div id="testMenu" class="collapse <?= in_array($currentPage, [
-            'add_test.php','view_tests.php','edit_test.php',
-            'delete_test.php','restore_tests.php',
-            'test_category_manager.php','test_ranges.php'
+            'add_test.php','view_tests.php',
+            'test_category_manager.php','manage_departments.php'
         ]) ? 'show' : '' ?>">
         <a href="add_test.php" class="<?= ($currentPage == 'add_test.php') ? 'bg-primary text-white' : '' ?>">
             ➕ Add Test
@@ -204,8 +204,7 @@ $pending_count = ($pending_result && $pending_result->num_rows > 0) ? $pending_r
         👨‍⚕️ Doctor Management
     </button>
     <div id="doctorMenu" class="collapse <?= in_array($currentPage, [
-            'doctor_add.php','view_doctors.php','edit_doctor.php',
-            'delete_doctor.php','restore_doctor.php','doctor_commission_report.php'
+            'doctor_add.php','view_doctors.php','doctor_commission_report.php'
         ]) ? 'show' : '' ?>">
         <a href="doctor_add.php" class="<?= ($currentPage == 'doctor_add.php') ? 'bg-primary text-white' : '' ?>">
             ➕ Add Doctor
