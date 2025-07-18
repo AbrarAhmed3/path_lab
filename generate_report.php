@@ -181,9 +181,9 @@ function render_reference_range_html($test_id, $patient, $value = null, $compone
             OR (? BETWEEN gestation_min AND gestation_max)
            )
            " . ($component_label !== null
-            ? "AND range_type = 'component' AND condition_label = ?"
-            : ""
-        ) . "
+        ? "AND range_type = 'component' AND condition_label = ?"
+        : ""
+    ) . "
          ORDER BY
            FIELD(range_type,'component','label','age_gender','gender','simple'),
            gestation_min DESC,
@@ -474,10 +474,10 @@ function formatRange($low, $high)
                 <?php
                 // Fetch statuses & referring doctor...
                 $status_stmt = $conn->prepare("
-      SELECT fstatus, gstatus, referred_by
-        FROM billing
-       WHERE billing_id = ?
-    ");
+                    SELECT fstatus, gstatus, referred_by
+                        FROM billing
+                         WHERE billing_id = ?
+                        ");
                 $status_stmt->bind_param("i", $billing_id);
                 $status_stmt->execute();
                 $status_stmt->bind_result($fstatus, $gstatus, $referred_by_id);
@@ -1486,50 +1486,50 @@ function formatRange($low, $high)
     <script>
         document.querySelectorAll(".barcode").forEach(svg => JsBarcode(svg).init());
 
-  document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
+        document.getElementById('downloadBtn').addEventListener('click', downloadPDF);
 
-  function downloadPDF() {
-    const btn = document.getElementById('downloadBtn');
-    const pid = <?= json_encode($patient_id) ?>;
-    const bid = <?= json_encode($billing_id) ?>;
-    const filename = `Patient_Report_${pid}_Visit_${bid}.pdf`;
-    const url = `print_report.php?patient_id=${pid}&billing_id=${bid}&download=1`;
+        function downloadPDF() {
+            const btn = document.getElementById('downloadBtn');
+            const pid = <?= json_encode($patient_id) ?>;
+            const bid = <?= json_encode($billing_id) ?>;
+            const filename = `Patient_Report_${pid}_Visit_${bid}.pdf`;
+            const url = `print_report.php?patient_id=${pid}&billing_id=${bid}&download=1`;
 
-    // 1) Show spinner + disable
-    btn.disabled = true;
-    btn.innerHTML = `
+            // 1) Show spinner + disable
+            btn.disabled = true;
+            btn.innerHTML = `
       <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
       Downloading...
     `;
 
-    // 2) Trigger download via hidden <a>
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+            // 2) Trigger download via hidden <a>
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
 
-    // 3) Mark finished (fire‐and‐forget)
-    markReportAsFinished(<?= $billing_id ?>);
+            // 3) Mark finished (fire‐and‐forget)
+            markReportAsFinished(<?= $billing_id ?>);
 
-    // 4) Setup restoration logic
-    let restored = false;
-    function restore() {
-      if (restored) return;
-      restored = true;
-      btn.disabled = false;
-      btn.innerHTML = '⬇ Download PDF';
-      window.removeEventListener('focus', restore);
-      clearTimeout(fallback);
-            // *** reload the page after the buffer finishes ***
-      location.reload();
-    }
-    // a) on window focus
-    window.addEventListener('focus', restore);
-    // b) fallback after 4s
-    const fallback = setTimeout(restore, 5000);
-  }
+            // 4) Setup restoration logic
+            let restored = false;
+            function restore() {
+                if (restored) return;
+                restored = true;
+                btn.disabled = false;
+                btn.innerHTML = '⬇ Download PDF';
+                window.removeEventListener('focus', restore);
+                clearTimeout(fallback);
+                // *** reload the page after the buffer finishes ***
+                location.reload();
+            }
+            // a) on window focus
+            window.addEventListener('focus', restore);
+            // b) fallback after 4s
+            const fallback = setTimeout(restore, 5000);
+        }
 
         function printReport() {
             // Build the URL to your mPDF-backed print_report.php

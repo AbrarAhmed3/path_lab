@@ -373,34 +373,58 @@ function formatRange($low, $high)
 $mpdf = new \Mpdf\Mpdf([
   'mode' => 'utf-8',
   'format' => 'A4',
-  'margin_top' => 60,  // enough to clear the header
-  'margin_header' => 40,  // reserve 40mm for your patient block + barcode
-  'margin_footer' => 20,
-  'margin_left' => 10,
-  'margin_right' => 10,
-  'margin_bottom' => 40,
+  'margin_top' => 64,  // enough to clear the header
+  'margin_header' => 47,  // reserve 40mm for your patient block + barcode
+  'margin_footer' => 19,
+  'margin_left' => 8,
+  'margin_right' => 8,
+  'margin_bottom' => 38,
 ]);
+
+// Fetch statuses & referring doctor...
+$status_stmt = $conn->prepare("
+                    SELECT fstatus, gstatus, referred_by
+                        FROM billing
+                         WHERE billing_id = ?
+                        ");
+$status_stmt->bind_param("i", $billing_id);
+$status_stmt->execute();
+$status_stmt->bind_result($fstatus, $gstatus, $referred_by_id);
+$status_stmt->fetch();
+$status_stmt->close();
+
+$referrerName = 'N/A';
+if ($referred_by_id) {
+  $d = $conn->prepare("SELECT name FROM doctors WHERE doctor_id = ?");
+  $d->bind_param("i", $referred_by_id);
+  $d->execute();
+  $tmp = $d->get_result()->fetch_assoc();
+  $d->close();
+  if (!empty($tmp['name'])) {
+    $referrerName = htmlspecialchars($tmp['name']);
+  }
+}
 
 
 
 // Build the HTML for your patient‐info + barcode block:
-  $barcodeText = "ID:{$patient_id}"
+$barcodeText = "ID:{$patient_id}"
   . "|BN:{$billing_id}";
 $headerHtml = '
 <table width="100%" style="font-family:Courier,Helvetica,Times-Roman;font-size:10pt;border:none">
   <tr>
-    <td width="33%" valign="top">
-      <strong>Patient Name:</strong> ' . htmlspecialchars($patient['name']) . '<br>
-      <strong>Sex / Age:</strong> ' . htmlspecialchars($patient['gender']) . '/' . htmlspecialchars($patient['age']) . '<br>'
+    <td width="42%" valign="top">
+      Patient Name :<strong> ' . htmlspecialchars($patient['name']) . '</strong><br>
+      Sex / Age : ' . htmlspecialchars($patient['gender']) . '/' . htmlspecialchars($patient['age']) . '<br>'
   . (
     $patient['gender'] === 'Female' && $patient['is_pregnant']
-    ? '<strong>Pregnancy Status:</strong> Pregnant (' . $patient['gestational_weeks'] . ' wks)<br>'
+    ? 'Pregnancy Status: Pregnant (' . $patient['gestational_weeks'] . ' wks)<br>'
     : ''
   ) . '
-      <strong>Referred By:</strong> ' . htmlspecialchars($referrerName) . '<br>
-      <strong>Bill No:</strong> HDC_' . $billing_id . '
+      Referred By : ' . htmlspecialchars($referrerName) . '<br>
+      Bill No :<strong> HDC_' . $billing_id . '</strong>
       </td>
-<td width="34%" align="center" valign="middle">
+<td width="25%" align="center" valign="middle">
       <barcode
         code="' . $barcodeText . '"
         type="C128B"
@@ -414,10 +438,10 @@ $headerHtml = '
       </div>
     </td>
     <td width="33%" valign="top" align="right">
-      <strong>Patient Id:</strong> HPI_' . $patient_id . '<br>
-      <strong>Booking On:</strong> ' . date('d-m-Y', strtotime($booking_on)) . '<br>
-      <strong>Generated On:</strong> ' . ($report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '-') . '<br>
-      <strong>Report Delivery:</strong> ' . date('d-m-Y', strtotime($report_delivery)) . '
+      Patient Id:<strong> HPI_' . $patient_id . '</strong><br>
+      Booking On: ' . date('d-m-Y', strtotime($booking_on)) . '<br>
+      Generated On: ' . ($report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '-') . '<br>
+      Report Delivery: ' . date('d-m-Y', strtotime($report_delivery)) . '
     </td>
   </tr>
 </table>';
@@ -479,8 +503,7 @@ $qrText = "Patient: " . htmlspecialchars($patient['name'])
 $footerHtml = '
 <table width="100%" cellpadding="4" cellspacing="0"
        style="
-         border-top:1px solid #ccc;
-         margin-top:8pt;
+         margin-top:4pt;
          font-family:Courier,Helvetica,Times-Roman;
          font-size:10pt;
          page-break-inside:avoid;
@@ -765,7 +788,7 @@ ob_start();
         font-size:14pt;
         font-weight:700;
         text-align:center;
-        margin-bottom:3pt;
+        margin-bottom:1pt;
     ">
       Department of ' . htmlspecialchars($dept) . '
     </div>';
@@ -777,7 +800,7 @@ ob_start();
         font-family:Calibri;
         font-size:11pt;
         text-align:center;
-        margin-bottom:12pt;
+        margin-bottom:6pt;
     ">
       Report on ' . htmlspecialchars($catName ?? '') . '
     </div>';
@@ -1020,7 +1043,7 @@ ob_start();
         font-size:14pt;
         font-weight:600;
         text-align:center;
-        margin-bottom:3pt;
+        margin-bottom:2pt;
     ">
       Department of ' . htmlspecialchars($dept) . '
     </div>';
@@ -1185,8 +1208,8 @@ $html = ob_get_clean();
 // 5) Write & output PDF
 $mpdf->WriteHTML($html, \Mpdf\HTMLParserMode::HTML_BODY);
 $dest = isset($_GET['download'])
-      ? \Mpdf\Output\Destination::DOWNLOAD
-      : \Mpdf\Output\Destination::INLINE;
+  ? \Mpdf\Output\Destination::DOWNLOAD
+  : \Mpdf\Output\Destination::INLINE;
 
 $mpdf->Output("Patient_report_ID_{$patient_id}_BN_{$billing_id}.pdf", $dest);
 exit;
