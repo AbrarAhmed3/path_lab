@@ -494,72 +494,97 @@ if (count($treated) >= 2) {
 }
 
 // … after you’ve determined $doc1 and $doc2 …
+// … after you’ve determined $doc1 and $doc2 …
 
 $qrText = "Patient: " . htmlspecialchars($patient['name'])
-  . " | ID: {$patient_id}"
-  . " | Bill: {$billing_id}"
-  . " | Report: " . date('d-m-Y', strtotime($report_generated_on));
+        . " | ID: {$patient_id}"
+        . " | Bill: {$billing_id}"
+        . " | Report: " . date('d-m-Y', strtotime($report_generated_on));
 
 $footerHtml = '
 <table width="100%" cellpadding="4" cellspacing="0"
-       style="
-         margin-top:4pt;
-         font-family:Courier,Helvetica,Times-Roman;
-         font-size:10pt;
-         page-break-inside:avoid;
-         border-collapse:collapse;
-       ">
+       style="margin-top:8pt;
+              font-family:Courier,Helvetica,Times-Roman;
+              font-size:10pt;
+              page-break-inside:avoid;
+              border-collapse:collapse;">
   <tr>
     <!-- QR code -->
     <td width="25%" align="center" valign="top">
       <barcode
-    code="' . $qrText . '"
-    type="QR"
-    size="0.9"
-    text="0"
-    disableborder="1"
-    style="width:20mm; height:20mm; margin-top:2mm"
-  />
+        code="'. $qrText .'"
+        type="QR"
+        size="0.9"
+        text="0"
+        disableborder="1"
+        style="width:20mm; height:20mm;"
+      />
     </td>
 
     <!-- Lab Technician -->
     <td width="25%" align="center" valign="top">
-      <img src="uploads/signature2.png"
-           style="max-height:40px;"><br>
+      <img src="uploads/signature2.png" style="max-height:40px;"><br>
       <strong>SABINA YEASMIN</strong><br>
       Medical Lab Technician
-    </td>
+    </td>';
 
-    <!-- Doctor 1 -->
-    <td width="25%" align="center" valign="top">'
-  . (
-    $doc1
-    ? '<img src="uploads/signatures/' . htmlspecialchars($doc1['signature']) . '"
-               style="max-height:40px;"><br>
-           <strong>' . htmlspecialchars(strtoupper($doc1['name'])) . '</strong><br>
-           ' . htmlspecialchars($doc1['qualification']) . '<br>
-           Reg. No. ' . htmlspecialchars($doc1['reg_no'])
-    : ''
-  )
-  . '</td>
+// ─── Doctor #1 slot ─────────────────────────────
+if ($doc1) {
+    $footerHtml .= '
+    <td width="25%" align="center" valign="top">';
+    // only show signature image if treating doctor
+    if ((int)$doc1['is_treating_doctor'] === 1 && $doc1['signature']) {
+        $footerHtml .= '
+      <img src="uploads/signatures/'.htmlspecialchars($doc1['signature']).'"
+           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+    }
+    else{
+       $footerHtml .= '
+      <img src="uploads/nontreated.png"
+           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+    }
+    $footerHtml .= '
+      <strong>'.htmlspecialchars(strtoupper($doc1['name'])).'</strong><br>
+      '.htmlspecialchars($doc1['qualification']).'<br>
+      Reg. No. '.htmlspecialchars($doc1['reg_no']).'
+    </td>';
+} else {
+    // empty cell if no doctor 1
+    $footerHtml .= '
+    <td width="25%"></td>';
+}
 
-    <!-- Doctor 2 -->
-    <td width="25%" align="center" valign="top">'
-  . (
-    $doc2
-    ? '<img src="uploads/signatures/' . htmlspecialchars($doc2['signature']) . '"
-               style="max-height:40px;"><br>
-           <strong>' . htmlspecialchars(strtoupper($doc2['name'])) . '</strong><br>
-           ' . htmlspecialchars($doc2['qualification']) . '<br>
-           Reg. No. ' . htmlspecialchars($doc2['reg_no'])
-    : ''
-  )
-  . '</td>
+// ─── Doctor #2 slot ─────────────────────────────
+if ($doc2) {
+    $footerHtml .= '
+    <td width="25%" align="center" valign="top">';
+    if ((int)$doc2['is_treating_doctor'] === 1 && $doc2['signature']) {
+        $footerHtml .= '
+      <img src="uploads/signatures/'.htmlspecialchars($doc2['signature']).'"
+           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+    }
+    else{
+       $footerHtml .= '
+      <img src="uploads/nontreated.png"
+           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+    }
+    $footerHtml .= '
+      <strong>'.htmlspecialchars(strtoupper($doc2['name'])).'</strong><br>
+      '.htmlspecialchars($doc2['qualification']).'<br>
+      Reg. No. '.htmlspecialchars($doc2['reg_no']).'
+    </td>';
+} else {
+    // empty cell if no doctor 2
+    $footerHtml .= '
+    <td width="25%"></td>';
+}
+
+$footerHtml .= '
   </tr>
-</table>
-';
+</table>';
 
 $mpdf->SetHTMLFooter($footerHtml);
+
 
 
 
