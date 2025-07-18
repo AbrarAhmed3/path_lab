@@ -373,7 +373,7 @@ function formatRange($low, $high)
 $mpdf = new \Mpdf\Mpdf([
   'mode' => 'utf-8',
   'format' => 'A4',
-  'margin_top' => 64,  // enough to clear the header
+  'margin_top' => 69,  // enough to clear the header
   'margin_header' => 47,  // reserve 40mm for your patient block + barcode
   'margin_footer' => 19,
   'margin_left' => 8,
@@ -409,44 +409,85 @@ if ($referred_by_id) {
 
 // Build the HTML for your patient‐info + barcode block:
 $barcodeText = "ID:{$patient_id}"
-  . "|BN:{$billing_id}";
+  . "| BN:{$billing_id}";
+// … after instantiating $mpdf …
+
+// Replace your existing patient‐info <td> with this:
 $headerHtml = '
 <table width="100%" style="font-family:Courier,Helvetica,Times-Roman;font-size:10pt;border:none">
   <tr>
-    <td width="42%" valign="top">
-      Patient Name :<strong> ' . htmlspecialchars($patient['name']) . '</strong><br>
-      Sex / Age : ' . htmlspecialchars($patient['gender']) . '/' . htmlspecialchars($patient['age']) . '<br>'
-  . (
-    $patient['gender'] === 'Female' && $patient['is_pregnant']
-    ? 'Pregnancy Status: Pregnant (' . $patient['gestational_weeks'] . ' wks)<br>'
-    : ''
-  ) . '
-      Referred By : ' . htmlspecialchars($referrerName) . '<br>
-      Bill No :<strong> HDC_' . $billing_id . '</strong>
-      </td>
-<td width="25%" align="center" valign="middle">
+    <!-- LEFT COLUMN: patient details -->
+    <td width="43%" valign="top">
+      <table style="font-family:Courier,Helvetica,Times-Roman;font-size:10pt;border:none;">
+        <tr>
+          <td style="text-align:left;white-space:nowrap;padding-right:4px;">Patient Name</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;"><strong>'.htmlspecialchars($patient['name']).'</strong></td>
+        </tr>
+        <tr>
+          <td style="text-align:left;white-space:nowrap;padding-right:4px;">Sex / Age</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;">'.htmlspecialchars($patient['gender']).'/'.htmlspecialchars($patient['age']).'</td>
+        </tr>
+        <tr>
+          <td style="text-align:left;white-space:nowrap;padding-right:4px;">Referred By</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;">'.htmlspecialchars($referrerName).'</td>
+        </tr>
+        <tr>
+          <td style="text-align:left;white-space:nowrap;padding-right:4px;">Bill No</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;"><strong>HDC_'.htmlspecialchars($billing_id).'</strong></td>
+        </tr>
+      </table>
+    </td>
+
+    <!-- MIDDLE COLUMN: barcode -->
+<td width="24%" align="center" valign="middle">
       <barcode
         code="' . $barcodeText . '"
         type="C128B"
-        size="1"
-        height="1"
+        size="0.7"
+        height="0.8"
         text="0"
         style="width:20mm; height:10mm;"
       />
-      <div style="font-size:8pt; margin-top:4pt;">
+      <div style="font-size:6pt; margin-top:4pt;">
         Hemo Diagnostic Centre & Polyclinic
       </div>
     </td>
-    <td width="33%" valign="top" align="right">
-      Patient Id:<strong> HPI_' . $patient_id . '</strong><br>
-      Booking On: ' . date('d-m-Y', strtotime($booking_on)) . '<br>
-      Generated On: ' . ($report_generated_on ? date('d-m-Y', strtotime($report_generated_on)) : '-') . '<br>
-      Report Delivery: ' . date('d-m-Y', strtotime($report_delivery)) . '
+
+    <!-- RIGHT COLUMN: IDs & dates (now inner-table formatted) -->
+    <td width="30%" valign="top">
+      <table style="font-family:Courier,Helvetica,Times-Roman;font-size:10pt;border:none;">
+        <tr>
+          <td style="text-align:right;white-space:nowrap;padding-right:4px;">Patient Id</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;">HPI_'.htmlspecialchars($patient_id).'</td>
+        </tr>
+        <tr>
+          <td style="text-align:right;white-space:nowrap;padding-right:4px;">Booking On</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;">'.date('d-m-Y',strtotime($booking_on)).'</td>
+        </tr>
+        <tr>
+          <td style="text-align:right;white-space:nowrap;padding-right:4px;">Generated On</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;">'.date('d-m-Y',strtotime($report_generated_on)).'</td>
+        </tr>
+        <tr>
+          <td style="text-align:right;white-space:nowrap;padding-right:4px;">Report Delivery</td>
+          <td style="padding:0 4px;text-align:left;">:</td>
+          <td style="text-align:left;">'.date('d-m-Y',strtotime($report_delivery)).'</td>
+        </tr>
+      </table>
     </td>
   </tr>
-</table>';
+</table>
+';
 
 $mpdf->SetHTMLHeader($headerHtml);
+
 
 // ─── Build repeating footer ─────────────────────────────────────
 // Fetch and decide doc1/doc2 as before
@@ -496,94 +537,86 @@ if (count($treated) >= 2) {
 // … after you’ve determined $doc1 and $doc2 …
 // … after you’ve determined $doc1 and $doc2 …
 
-$qrText = "Patient: " . htmlspecialchars($patient['name'])
-        . " | ID: {$patient_id}"
-        . " | Bill: {$billing_id}"
-        . " | Report: " . date('d-m-Y', strtotime($report_generated_on));
+$qrText = "Patient: {$patient['name']} | ID: {$patient_id} | Bill: {$billing_id} | Report: " 
+        . date('d-m-Y', strtotime($report_generated_on));
 
 $footerHtml = '
-<table width="100%" cellpadding="4" cellspacing="0"
-       style="margin-top:8pt;
-              font-family:Courier,Helvetica,Times-Roman;
-              font-size:10pt;
-              page-break-inside:avoid;
-              border-collapse:collapse;">
+<table width="100%" cellpadding="4" cellspacing="0" style="
+    margin-top:8pt;
+    font-family:Courier,Helvetica,Times-Roman;
+    font-size:10pt;
+    page-break-inside:avoid;
+    border-collapse:collapse;
+">
   <tr>
     <!-- QR code -->
     <td width="25%" align="center" valign="top">
       <barcode
-        code="'. $qrText .'"
-        type="QR"
-        size="0.9"
-        text="0"
-        disableborder="1"
-        style="width:20mm; height:20mm;"
-      />
+        code="'.htmlspecialchars($qrText).'"
+        type="QR" size="0.9" text="0" disableborder="1"
+        style="width:20mm;height:20mm;" />
     </td>
 
     <!-- Lab Technician -->
     <td width="25%" align="center" valign="top">
-      <img src="uploads/signature2.png" style="max-height:40px;"><br>
+      <img src="'.__DIR__.'/uploads/signature2.png" 
+           style="max-height:40px;display:block;margin:0 auto 4px;"><br>
       <strong>SABINA YEASMIN</strong><br>
       Medical Lab Technician
-    </td>';
+    </td>
 
-// ─── Doctor #1 slot ─────────────────────────────
-if ($doc1) {
-    $footerHtml .= '
+    <!-- Doctor #1 slot -->
     <td width="25%" align="center" valign="top">';
-    // only show signature image if treating doctor
-    if ((int)$doc1['is_treating_doctor'] === 1 && $doc1['signature']) {
+if ($doc1) {
+    // only show signature if treating & file exists
+    if ((int)$doc1['is_treating_doctor'] === 1
+        && file_exists(__DIR__.'/uploads/signatures/'.$doc1['signature'])
+    ) {
         $footerHtml .= '
-      <img src="uploads/signatures/'.htmlspecialchars($doc1['signature']).'"
-           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+      <img src="'.__DIR__.'/uploads/signatures/'.htmlspecialchars($doc1['signature']).'"
+           style="max-height:40px;display:block;margin:0 auto 4px;"><br>';
     }
     else{
-       $footerHtml .= '
-      <img src="uploads/nontreated.png"
-           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+      $footerHtml .= '
+      <img src="'.__DIR__.'/uploads/nontreated.png"
+           style="max-height:40px;display:block;margin:0 auto 4px;"><br>';
     }
     $footerHtml .= '
       <strong>'.htmlspecialchars(strtoupper($doc1['name'])).'</strong><br>
       '.htmlspecialchars($doc1['qualification']).'<br>
-      Reg. No. '.htmlspecialchars($doc1['reg_no']).'
-    </td>';
-} else {
-    // empty cell if no doctor 1
-    $footerHtml .= '
-    <td width="25%"></td>';
+      Reg. No. '.htmlspecialchars($doc1['reg_no']);
 }
+$footerHtml .= '
+    </td>
 
-// ─── Doctor #2 slot ─────────────────────────────
-if ($doc2) {
-    $footerHtml .= '
+    <!-- Doctor #2 slot -->
     <td width="25%" align="center" valign="top">';
-    if ((int)$doc2['is_treating_doctor'] === 1 && $doc2['signature']) {
+if ($doc2) {
+    if ((int)$doc2['is_treating_doctor'] === 1
+        && file_exists(__DIR__.'/uploads/signatures/'.$doc2['signature'])
+    ) {
         $footerHtml .= '
-      <img src="uploads/signatures/'.htmlspecialchars($doc2['signature']).'"
-           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+      <img src="'.__DIR__.'/uploads/signatures/'.htmlspecialchars($doc2['signature']).'"
+           style="max-height:40px;display:block;margin:0 auto 4px;"><br>';
     }
     else{
-       $footerHtml .= '
-      <img src="uploads/nontreated.png"
-           style="max-height:40px; display:block; margin:0 auto 4px;"><br>';
+      $footerHtml .= '
+      <img src="'.__DIR__.'/uploads/nontreated.png"
+           style="max-height:40px;display:block;margin:0 auto 4px;"><br>';
     }
     $footerHtml .= '
       <strong>'.htmlspecialchars(strtoupper($doc2['name'])).'</strong><br>
       '.htmlspecialchars($doc2['qualification']).'<br>
-      Reg. No. '.htmlspecialchars($doc2['reg_no']).'
-    </td>';
-} else {
-    // empty cell if no doctor 2
-    $footerHtml .= '
-    <td width="25%"></td>';
+      Reg. No. '.htmlspecialchars($doc2['reg_no']);
 }
-
 $footerHtml .= '
+    </td>
   </tr>
-</table>';
+</table>
+';
 
 $mpdf->SetHTMLFooter($footerHtml);
+
 
 
 
@@ -1031,7 +1064,7 @@ ob_start();
         }
 
         // ─── 2) Chunk into pages ───
-        $maxRowsPerPage = 18;
+        $maxRowsPerPage = 17;
         $pageChunks = array_chunk($rows, $maxRowsPerPage);
         ?>
 
