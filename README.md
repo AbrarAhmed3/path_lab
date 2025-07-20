@@ -163,7 +163,6 @@ Distributed under the **MIT License**. See [LICENSE](LICENSE) for more informati
 ## 📬 Contact
 
 **Abranex Software Solutions**
-Email: [abrar@abranex.com](mailto:abrar@abranex.com)
-Phone: +91 8918960313
+Email: [freelancerabrar@gmail.com](mailto:freelancerabrar@gmail.com)
 
 Visit our website for more information and support.
