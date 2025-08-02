@@ -18,9 +18,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $ref_range = $_POST['ref_range'] ?? '';
     $department_id = $_POST['department_id'];
     $price = $_POST['price'];
+    $description = isset($_POST['description']) ? trim($_POST['description']) : null;
 
-    $stmt = $conn->prepare("INSERT INTO tests (name, unit, method, ref_range, department_id, price) VALUES (?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("ssssdi", $name, $unit, $method, $ref_range, $department_id, $price);
+
+    $stmt = $conn->prepare("INSERT INTO tests (name, unit, method, ref_range, department_id, price, description) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("ssssdis", $name, $unit, $method, $ref_range, $department_id, $price, $description);
 
     if ($stmt->execute()) {
         $test_id = $stmt->insert_id;
@@ -46,57 +48,68 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
 <!DOCTYPE html>
 <html>
+
 <head>
     <title>Add New Test</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 </head>
+
 <body>
-<div class="container mt-5">
-    <h3 class="mb-4">🧪 Add New Test</h3>
-    <form method="POST">
-        <div class="form-group">
-            <label>Test Name</label>
-            <input type="text" name="name" class="form-control" required placeholder="Enter test name">
-        </div>
+    <div class="container mt-5">
+        <h3 class="mb-4">🧪 Add New Test</h3>
+        <form method="POST">
+            <div class="form-group">
+                <label>Test Name</label>
+                <input type="text" name="name" class="form-control" required placeholder="Enter test name">
+            </div>
 
-        <div class="form-group">
-            <label>Unit</label>
-            <input type="text" name="unit" class="form-control" placeholder="e.g. mg/dL, %">
-        </div>
+            <div class="form-group">
+                <label>Unit</label>
+                <input type="text" name="unit" class="form-control" placeholder="e.g. mg/dL, %">
+            </div>
 
-        <div class="form-group">
-            <label>Method</label>
-            <input type="text" name="method" class="form-control"  placeholder="e.g. CLIA, ELISA, ISE, etc.">
-        </div>
+            <div class="form-group">
+                <label>Method</label>
+                <input type="text" name="method" class="form-control" placeholder="e.g. CLIA, ELISA, ISE, etc.">
+            </div>
 
-        <div class="form-group">
-            <label>Reference Range (optional)</label>
-            <input type="text" name="ref_range" class="form-control" placeholder="e.g. 70 - 110 mg/dL">
-            <small class="form-text text-muted">For display only. Define actual ranges in next step.</small>
-        </div>
+            <div class="form-group">
+                <label>Reference Range (optional)</label>
+                <input type="text" name="ref_range" class="form-control" placeholder="e.g. 70 - 110 mg/dL">
+                <small class="form-text text-muted">For display only. Define actual ranges in next step.</small>
+            </div>
 
-        <div class="form-group">
-            <label>Price (₹)</label>
-            <input type="number" step="0.01" min="0" name="price" class="form-control" required placeholder="Enter test price">
-        </div>
+            <div class="form-group">
+                <label>Price (₹)</label>
+                <input type="number" step="0.01" min="0" name="price" class="form-control" required
+                    placeholder="Enter test price">
+            </div>
 
-        <div class="form-group">
-            <label>Department</label>
-            <select name="department_id" class="form-control" required>
-                <option value="">-- Select Department --</option>
-                <?php while ($d = $departments->fetch_assoc()): ?>
-                    <option value="<?= $d['department_id'] ?>">
-                        <?= htmlspecialchars($d['department_name']) ?>
-                    </option>
-                <?php endwhile; ?>
-            </select>
-        </div>
+            <div class="form-group">
+                <label>Department</label>
+                <select name="department_id" class="form-control" required>
+                    <option value="">-- Select Department --</option>
+                    <?php while ($d = $departments->fetch_assoc()): ?>
+                        <option value="<?= $d['department_id'] ?>">
+                            <?= htmlspecialchars($d['department_name']) ?>
+                        </option>
+                    <?php endwhile; ?>
+                </select>
+            </div>
 
-        <button type="submit" class="btn btn-primary">➕ Add Test</button>
-        <a href="view_tests.php" class="btn btn-secondary">📋 View All Tests</a>
-    </form>
-</div>
+            <div class="form-group">
+                <label for="description">Test Description</label>
+                <textarea name="description" id="description" class="form-control" rows="3"
+                    placeholder="Enter test description..."></textarea>
+            </div>
+
+
+            <button type="submit" class="btn btn-primary">➕ Add Test</button>
+            <a href="view_tests.php" class="btn btn-secondary">📋 View All Tests</a>
+        </form>
+    </div>
 </body>
+
 </html>
 
 <?php include 'admin_footer.php'; ?>

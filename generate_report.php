@@ -13,6 +13,26 @@ $billing_id = isset($_GET['billing_id']) ? intval($_GET['billing_id']) : null;
 
 
 
+// test Description
+$desc_allowed = [];
+if ($billing_id) {
+    $stmt = $conn->prepare("
+        SELECT test_id
+        FROM report_test_description_selection
+        WHERE billing_id = ? AND show_description = 1
+    ");
+    $stmt->bind_param("i", $billing_id);
+    $stmt->execute();
+    $rs = $stmt->get_result();
+    while ($row = $rs->fetch_assoc()) {
+        $desc_allowed[] = $row['test_id'];
+    }
+    $stmt->close();
+}
+
+
+
+
 // ─────────────────────────────────────────────────
 // Payment-Due Banner
 // ─────────────────────────────────────────────────
@@ -405,6 +425,8 @@ function formatRange($low, $high)
 <body>
     <div class="container">
         <!-- Header and Filters -->
+
+
         <?php
         // ─── At the top of generate_report.php, before any HTML ───
         $selectedPatientText = '';
@@ -746,6 +768,34 @@ function formatRange($low, $high)
 
                 <?php foreach ($results_by_department as $dept => $tests): ?>
 
+
+                    <?php
+$test_descriptions = [];
+if ($billing_id && !empty($dept)) {
+    $descStmt = $conn->prepare("
+        SELECT t.test_id, t.name AS test_name, t.description
+        FROM report_test_description_selection rtds
+        JOIN tests t ON rtds.test_id = t.test_id
+        JOIN departments d ON t.department_id = d.department_id
+        WHERE rtds.billing_id = ?
+          AND rtds.show_description = 1
+          AND d.department_name = ?
+    ");
+    $descStmt->bind_param("is", $billing_id, $dept);
+    $descStmt->execute();
+    $res = $descStmt->get_result();
+    while ($row = $res->fetch_assoc()) {
+        $test_descriptions[] = $row;
+    }
+    $descStmt->close();
+    // Debug output:
+    // echo "<pre>TEST DESCRIPTIONS for $dept:\n";
+    // print_r($test_descriptions);
+    // echo "</pre>";
+}
+?>
+
+
                     <?php
                     // ─── Serology special case: drop Widal category ───
                     if ($dept === 'Serology') {
@@ -997,6 +1047,26 @@ function formatRange($low, $high)
                                     </table>
                                 </div>
 
+<!-- Test Descriptions -->
+<?php foreach ($test_descriptions as $td): ?>
+    <div class="mb-2 pl-2" style="text-align:left;">
+        <div style="
+            border:1px solid #bbb;
+            border-radius:8px;
+            background:#fafcff;
+            padding:12px 16px 10px 16px;
+            margin-bottom:10px;
+        ">
+            <div style="font-size:13.2px;line-height:1.7;color:#263142;">
+                <p style="font-weight:600;font-size:14px;letter-spacing:0.2px;margin-bottom:1px;">Remarks:</p>
+                <?= nl2br(htmlspecialchars($td['description'])) ?>
+            </div>
+        </div>
+    </div>
+<?php endforeach; ?>
+
+
+
                                 <!-- Machine info -->
                                 <?php if (!empty($machine_info_map[$dept])): ?>
                                     <div class="mb-3 pl-2 machine_info_text" style="text-align: left; font-size: 12px;">
@@ -1004,6 +1074,7 @@ function formatRange($low, $high)
                                         <?= htmlspecialchars($machine_info_map[$dept]) ?>
                                     </div>
                                 <?php endif; ?>
+
 
                                 <!-- Footer & signatures -->
                                 <?php
@@ -1345,12 +1416,32 @@ function formatRange($low, $high)
                                     </table>
                                 </div>
 
+<!-- Test Descriptions -->
+<?php foreach ($test_descriptions as $td): ?>
+    <div class="mb-2 pl-2" style="text-align:left;">
+        <div style="
+            border:1px solid #bbb;
+            border-radius:8px;
+            background:#fafcff;
+            padding:12px 16px 10px 16px;
+            margin-bottom:10px;
+        ">
+            <div style="font-size:13.2px;line-height:1.7;color:#263142;">
+                <p style="font-weight:600;font-size:14px;letter-spacing:0.2px;margin-bottom:1px;">Remarks:</p>
+                <?= nl2br(htmlspecialchars($td['description'])) ?>
+            </div>
+        </div>
+    </div>
+<?php endforeach; ?>
+
+                            
                                 <!-- Machine info -->
                                 <?php if (!empty($machine_info_map[$dept])): ?>
                                     <div class="mb-3 pl-2 machine_info_text" style="text-align: left;font-size: 12px;">
                                         <strong>Instruments:</strong> <?= htmlspecialchars($machine_info_map[$dept]) ?>
                                     </div>
                                 <?php endif; ?>
+
 
                                 <!-- Footer & signatures -->
                                 <?php

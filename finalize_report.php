@@ -69,6 +69,47 @@ if ($billing_id > 0) {
 $is_finalized = ($fstatus === 'finalized');
 $is_generated = ($gstatus === 'generated');
 
+
+// 4) Fetch assigned tests for this billing
+$tests_by_dept = [];
+$tests_count_by_dept = [];
+
+if ($billing_id > 0) {
+    $stmt = $conn->prepare("
+        SELECT ta.test_id, t.name AS test_name, t.description, d.department_name
+        FROM test_assignments ta
+        JOIN tests t ON ta.test_id = t.test_id
+        JOIN departments d ON t.department_id = d.department_id
+        WHERE ta.billing_id = ?
+        ORDER BY d.department_name, t.name
+    ");
+    $stmt->bind_param("i", $billing_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $dept = $row['department_name'];
+        $tests_by_dept[$dept][] = $row;
+        if (!isset($tests_count_by_dept[$dept])) $tests_count_by_dept[$dept] = 0;
+        $tests_count_by_dept[$dept]++;
+    }
+    $stmt->close();
+
+    // Fetch selected test_ids
+    $desc_checked = [];
+    $sel = $conn->prepare("
+        SELECT test_id FROM report_test_description_selection
+        WHERE billing_id = ? AND show_description = 1
+    ");
+    $sel->bind_param("i", $billing_id);
+    $sel->execute();
+    $rs = $sel->get_result();
+    while ($r = $rs->fetch_assoc()) $desc_checked[] = $r['test_id'];
+    $sel->close();
+}
+
+
+
+
 // 5) Fetch lab doctors + prefill arrays
 $lab_doctors = $conn->query("SELECT doctor_id, name FROM doctors WHERE is_lab_doctor = 1 ORDER BY name ASC");
 $prefill_doctors = $prefill_treating = [];
@@ -133,6 +174,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_generated) {
         $stmtM->execute();
     }
     $stmtM->close();
+
+    // update test descriptions
+    if (!$is_generated) {
+    // Save which tests to show description
+    $show_desc_tests = $_POST['show_desc_tests'] ?? [];
+    $show_desc_tests = array_map('intval', $show_desc_tests);
+
+    // Clear previous selections for this billing
+    $conn->query("DELETE FROM report_test_description_selection WHERE billing_id = $billing_id");
+
+    // Insert new checked ones
+    if (count($show_desc_tests)) {
+        $stmtDesc = $conn->prepare("INSERT INTO report_test_description_selection (billing_id, test_id, show_description) VALUES (?, ?, 1)");
+        foreach ($show_desc_tests as $tid) {
+            $stmtDesc->bind_param("ii", $billing_id, $tid);
+            $stmtDesc->execute();
+        }
+        $stmtDesc->close();
+    }
+}
+
+
+
 
     // update finalization status
     $newF = (count($doctor_ids) && $allFilled)
@@ -289,6 +353,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_generated) {
               <div id="machinesSection" class="mt-2"></div>
             </div>
 
+
+<?php if ($billing_id && count($tests_by_dept)): ?>
+  <div class="form-group">
+    <label><strong>Select Tests to Show Description (Departments with less than 5 tests)</strong></label>
+    <?php foreach($tests_by_dept as $dept => $tests): ?>
+      <?php if ($tests_count_by_dept[$dept] < 5): ?>
+        <div class="card mb-2">
+          <div class="card-header p-2 bg-light">
+            <strong><?= htmlspecialchars($dept) ?></strong>
+            <small class="text-muted">(<?= $tests_count_by_dept[$dept] ?> test<?= $tests_count_by_dept[$dept] == 1 ? '' : 's' ?>)</small>
+          </div>
+          <div class="card-body py-2 px-3">
+            <?php foreach($tests as $test): ?>
+              <div class="form-check mb-1">
+                <input class="form-check-input"
+                       type="checkbox"
+                       name="show_desc_tests[]"
+                       id="desc_test_<?= $test['test_id'] ?>"
+                       value="<?= $test['test_id'] ?>"
+                       <?= in_array($test['test_id'], $desc_checked) ? 'checked' : '' ?>
+                       <?= $is_generated ? 'disabled' : '' ?>>
+                <label class="form-check-label" for="desc_test_<?= $test['test_id'] ?>">
+                  <?= htmlspecialchars($test['test_name']) ?>
+                  <?php if($test['description']): ?>
+                    <small class="text-muted"> — <?= htmlspecialchars($test['description']) ?></small>
+                  <?php endif; ?>
+                </label>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+      <?php endif; ?>
+    <?php endforeach; ?>
+  </div>
+<?php endif; ?>
+
+
+
+
             <div class="text-right">
               <?php if (!$is_generated): ?>
                 <button type="submit" class="btn btn-success">
@@ -395,3 +498,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_generated) {
   <?php include 'admin_footer.php'; ?>
 </body>
 </html>
+
+
+
+<!-- 1. first step : 
+CREATE TABLE report_test_description_selection (
+  billing_id INT,
+  test_id INT,
+  show_description TINYINT(1) DEFAULT 0,
+  PRIMARY KEY (billing_id, test_id)
+); -->
+

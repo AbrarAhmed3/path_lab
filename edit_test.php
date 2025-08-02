@@ -25,9 +25,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $ref_range = $_POST['ref_range']; // Optional
     $department_id = $_POST['department_id'];
     $price = $_POST['price'];
+    $description = isset($_POST['description']) ? trim($_POST['description']) : null;
 
-    $stmt = $conn->prepare("UPDATE tests SET name = ?, unit = ?, method = ?, ref_range = ?, department_id = ?, price = ? WHERE test_id = ?");
-    $stmt->bind_param("ssssidi", $name, $unit, $method, $ref_range, $department_id, $price, $test_id);
+$stmt = $conn->prepare("UPDATE tests SET name = ?, unit = ?, method = ?, ref_range = ?, department_id = ?, price = ?, description = ? WHERE test_id = ?");
+$stmt->bind_param("ssssidsi", $name, $unit, $method, $ref_range, $department_id, $price, $description, $test_id);
+
 
     if ($stmt->execute()) {
         echo "
@@ -96,6 +98,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <?php endwhile; ?>
             </select>
         </div>
+
+        <div class="form-group">
+    <label for="description">Test Description</label>
+    <textarea name="description" id="description" class="form-control" rows="3"><?= htmlspecialchars($test['description'] ?? '') ?></textarea>
+</div>
+
 
         <button type="submit" class="btn btn-success">💾 Update</button>
         <a href="view_tests.php" class="btn btn-secondary">↩️ Cancel</a>

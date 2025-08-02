@@ -1010,6 +1010,51 @@ ob_start();
             }
             ?>
 
+            <?php
+// Fetch selected test descriptions for this billing and department
+$test_descriptions = [];
+$descStmt = $conn->prepare("
+    SELECT t.test_id, t.name AS test_name, t.description
+    FROM report_test_description_selection rtds
+    JOIN tests t ON rtds.test_id = t.test_id
+    WHERE rtds.billing_id = ? AND rtds.show_description = 1 AND t.department_id = (
+        SELECT department_id FROM departments WHERE department_name = ?
+    )
+");
+$descStmt->bind_param("is", $billing_id, $dept);
+$descStmt->execute();
+$res = $descStmt->get_result();
+while ($row = $res->fetch_assoc()) {
+    if (!empty($row['description'])) {
+        $test_descriptions[] = $row;
+    }
+}
+$descStmt->close();
+?>
+
+<?php foreach ($test_descriptions as $td): ?>
+    <div style="
+        border:1px solid #bbb;
+        border-radius:8px;
+        background:#fafcff;
+        padding-top:0px;
+        padding-right:16px;
+        padding-bottom:10px;
+        padding-left:16px;
+        margin-bottom:10px;
+        margin-top:6pt;
+        font-family: Arial, sans-serif;
+        font-size: 9pt;
+        text-align:left;
+    ">
+        <div style="font-size:13.2px;line-height:1.7;color:#263142;">
+                <p style="font-weight:700;font-size:9pt;letter-spacing:0.2px;margin-bottom:1px;"><strong>Remarks:</strong></p>
+                <?= nl2br(htmlspecialchars($td['description'])) ?>
+        </div>
+    </div>
+<?php endforeach; ?>
+
+
           </div><!-- /.report-container -->
         <?php endforeach; // end pageChunks 
               ?>
@@ -1252,6 +1297,51 @@ ob_start();
                 '</div>';
             }
             ?>
+
+            <?php
+// Fetch selected test descriptions for this billing and department
+$test_descriptions = [];
+$descStmt = $conn->prepare("
+    SELECT t.test_id, t.name AS test_name, t.description
+    FROM report_test_description_selection rtds
+    JOIN tests t ON rtds.test_id = t.test_id
+    WHERE rtds.billing_id = ? AND rtds.show_description = 1 AND t.department_id = (
+        SELECT department_id FROM departments WHERE department_name = ?
+    )
+");
+$descStmt->bind_param("is", $billing_id, $dept);
+$descStmt->execute();
+$res = $descStmt->get_result();
+while ($row = $res->fetch_assoc()) {
+    if (!empty($row['description'])) {
+        $test_descriptions[] = $row;
+    }
+}
+$descStmt->close();
+?>
+
+<?php foreach ($test_descriptions as $td): ?>
+    <div style="
+        border:1px solid #bbb;
+        border-radius:8px;
+        background:#fafcff;
+        padding-top:0px;
+        padding-right:16px;
+        padding-bottom:10px;
+        padding-left:16px;
+        margin-bottom:10px;
+        margin-top:6pt;
+        font-family: Arial, sans-serif;
+        font-size: 9pt;
+        text-align:left;
+    ">
+        <div style="font-size:13.2px;line-height:1.7;color:#263142;">
+                <p style="font-weight:700;font-size:9pt;letter-spacing:0.2px;margin-bottom:1px;"><strong>Remarks:</strong></p>
+                <?= nl2br(htmlspecialchars($td['description'])) ?>
+        </div>
+    </div>
+<?php endforeach; ?>
+
           </div>
         <?php endforeach; ?>
       <?php endif; ?>
