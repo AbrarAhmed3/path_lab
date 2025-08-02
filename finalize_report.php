@@ -175,14 +175,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_generated) {
     }
     $stmtM->close();
 
-    // update test descriptions
-    if (!$is_generated) {
+ if (!$is_generated) {
     // Save which tests to show description
     $show_desc_tests = $_POST['show_desc_tests'] ?? [];
     $show_desc_tests = array_map('intval', $show_desc_tests);
 
-    // Clear previous selections for this billing
-    $conn->query("DELETE FROM report_test_description_selection WHERE billing_id = $billing_id");
+    // Clear previous selections for this billing (use prepared statement)
+    $stmtDel = $conn->prepare("DELETE FROM report_test_description_selection WHERE billing_id = ?");
+    $stmtDel->bind_param("i", $billing_id);
+    $stmtDel->execute();
+    $stmtDel->close();
 
     // Insert new checked ones
     if (count($show_desc_tests)) {
@@ -194,6 +196,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$is_generated) {
         $stmtDesc->close();
     }
 }
+
 
 
 
