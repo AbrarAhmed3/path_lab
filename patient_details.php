@@ -54,8 +54,9 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
 <head>
     <title>Patient Details</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-      body { background: #f7fafc; }
+      body { background: #f6fbff; }
       .colon-label td:first-child { white-space:nowrap; font-weight:bold; color:#222;}
       .colon-label td:nth-child(2) { width: 16px; text-align:right;}
       .table-sm th, .table-sm td { font-size:14px; }
@@ -67,54 +68,106 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
       .badge-paid {background:#28a745;}
       .badge-printed {background:#17a2b8;}
       .badge-secondary {background:#e0e0e0;color:#333;}
-
-      /* -------- Enhanced Test Summary -------- */
-      .test-summary-card {
-          background: #f9fcff;
-          border-radius: 12px;
-          padding: 26px 22px 18px 32px;
-          box-shadow: 0 2px 12px rgba(0, 80, 150, 0.07);
-          margin-bottom: 30px;
-          border: 1.5px solid #e5ecfa;
+      /* --- Ultra-polished Summary Card --- */
+      .test-summary-glassy {
+        background: linear-gradient(120deg,rgba(249,253,255,0.98) 80%, #e5f2ff 100%);
+        border-radius: 22px;
+        box-shadow: 0 8px 44px #a9d6ff38, 0 1.5px 0 #b4cffe1a;
+        border: 1.6px solid #e0f0fe;
+        padding: 44px 48px 30px 48px;
+        margin-bottom: 40px;
+        max-width: 670px;
+        margin-left: auto;
+        margin-right: auto;
+        backdrop-filter: blur(1px);
+        transition: box-shadow .16s;
+        position:relative;
       }
-      .test-summary-list {
-          column-count: 2;
-          column-gap: 42px;
-          padding-left: 16px;
-          margin-top: 8px;
+      @media (max-width:800px){ .test-summary-glassy{padding:24px 8px 16px 8px;} }
+      .ts-main-head {
+        font-size: 1.7rem;
+        font-weight: 900;
+        color: #1d8dfa;
+        letter-spacing: .01em;
+        margin-bottom: 35px;
+        display: flex;
+        align-items: center;
       }
-      @media (max-width: 900px) {
-          .test-summary-list { column-count: 1; }
-          .test-summary-card { padding: 18px 10px; }
+      .ts-main-head .ts-icon {
+        font-size: 2.5rem;
+        margin-right: 15px;
+        filter: drop-shadow(0 2px 8px #bbe1ff60);
       }
-      .summary-key {
-          color: #0176d0; font-weight: 500; letter-spacing:0.4px;
+      .ts-summary-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0 36px;
+        justify-content: space-between;
+        margin-bottom: 24px;
       }
-      .summary-label {
-          font-size: 15px;
-          color: #444;
-          font-weight: 500;
-          width: 168px;
-          display: inline-block;
+      @media (max-width:650px){
+        .ts-summary-row{flex-direction:column;gap:18px;}
       }
-      .summary-value {
-          font-weight: 700;
-          color: #212121;
+      .ts-summary-block {
+        min-width: 170px;
+        flex: 1 1 200px;
+        margin-bottom: 0;
+        margin-right:10px;
+        margin-top:10px;
+        padding: 0;
+        display: flex;
+        align-items: center;
       }
-      .summary-icon {
-          font-size: 23px;
-          vertical-align: middle;
-          margin-right: 7px;
+      .ts-summary-icon {
+        font-size: 1.7rem;
+        color: #4bace9;
+        margin-right: 16px;
+        min-width:32px;
+        opacity:.95;
+        transition:color .18s;
       }
-      .badge-testcount {
-          background: #f1f7ff;
-          color: #2454ac;
-          border-radius: 9px;
-          font-size: 12px;
-          font-weight:600;
-          padding: 2px 9px;
-          margin-left: 5px;
-          letter-spacing: .4px;
+      .ts-summary-label {
+        font-size: 1.04rem;
+        color: #3786e6;
+        font-weight: 700;
+        letter-spacing: .03em;
+        margin-bottom: 2px;
+      }
+      .ts-summary-value {
+        font-size: 2.1rem;
+        font-weight: 900;
+        color: #11202e;
+        letter-spacing: .01em;
+        line-height:1.05;
+        margin-bottom: 0;
+        margin-top:0;
+      }
+      .ts-summary-details {
+        display:flex; flex-direction:column; align-items:flex-start; margin-left:6px;
+      }
+      .ts-summary-note {
+        font-size: .98rem;
+        color: #8ca0be;
+        font-weight: 500;
+        margin-left: 1px;
+        margin-top:0;
+      }
+      .ts-summary-mostfreq-label {
+        font-size: 1.09rem;
+        color: #3172d4;
+        font-weight: 700;
+        margin-right:10px;
+      }
+      .ts-summary-mostfreq {
+        background: linear-gradient(90deg, #e2efff 65%, #d9eaff 100%);
+        color: #1d6af1;
+        font-weight: 800;
+        font-size: 1.08rem;
+        border-radius: 15px;
+        padding: 8px 24px;
+        box-shadow: 0 2px 12px #b0d7ff21;
+        display: inline-block;
+        margin-top: 0;
       }
     </style>
 </head>
@@ -168,10 +221,10 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                       <td style="vertical-align:top; text-align:left;">
                         <table class="colon-label" style="font-size:15px;">
                           <tr>
-                            <td>Patient ID</td><td>:</td><td><?= $patient['patient_id'] ?></td>
+                            <td>Patient ID</td><td>: </td><td><?= $patient['patient_id'] ?></td>
                           </tr>
                           <tr>
-                            <td>Visits</td><td>:</td><td><?= count($bills) ?></td>
+                            <td>Visits</td><td>: </td><td><?= count($bills) ?></td>
                           </tr>
                         </table>
                       </td>
@@ -227,15 +280,13 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                   </div>
                 </div>
 
-                <!-- TEST SUMMARY ANALYTICS -->
+                <!-- TEST SUMMARY: ultra-modern, glassy, single card -->
                 <?php
-                // --- Smart summary block
                 $total_tests = count($test_history);
                 $unique_tests = [];
                 $test_count = [];
                 $last_test = null;
                 $first_test = null;
-
                 foreach ($test_history as $row) {
                     $unique_tests[$row['test_name']] = true;
                     $test_count[$row['test_name']] = ($test_count[$row['test_name']] ?? 0) + 1;
@@ -243,7 +294,6 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                     if (!$last_test || $d > $last_test['date']) $last_test = ['date' => $d, 'name' => $row['test_name']];
                     if (!$first_test || $d < $first_test['date']) $first_test = ['date' => $d, 'name' => $row['test_name']];
                 }
-
                 $most_freq_test = '-';
                 if ($test_count) {
                     arsort($test_count);
@@ -251,61 +301,54 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                     $most_freq_test = $top . ' (' . $test_count[$top] . ' time' . ($test_count[$top]>1?'s':'') . ')';
                 }
                 ?>
-                <div class="test-summary-card">
-                    <div class="row">
-                        <!-- Left: Key stats -->
-                        <div class="col-md-6 mb-2">
-                            <h5 class="summary-key" style="margin-bottom:16px;">
-                                <span class="summary-icon">📊</span> Test Summary
-                            </h5>
-                            <div>
-                                <span class="summary-label">Total Tests Done</span>
-                                <span class="summary-value"><?= $total_tests ?></span>
-                            </div>
-                            <div>
-                                <span class="summary-label">Unique Tests Done</span>
-                                <span class="summary-value"><?= count($unique_tests) ?></span>
-                            </div>
-                            <div>
-                                <span class="summary-label">First Test Date</span>
-                                <span class="summary-value">
-                                    <?= $first_test ? date('d-m-Y', strtotime($first_test['date'])) : '-' ?>
-                                    <?php if ($first_test): ?>
-                                        <span class="text-muted" style="font-size:12.5px;">(<?= htmlspecialchars($first_test['name']) ?>)</span>
-                                    <?php endif; ?>
-                                </span>
-                            </div>
-                            <div>
-                                <span class="summary-label">Last Test Taken</span>
-                                <span class="summary-value">
-                                    <?= $last_test ? date('d-m-Y', strtotime($last_test['date'])) : '-' ?>
-                                    <?php if ($last_test): ?>
-                                        <span class="text-muted" style="font-size:12.5px;">(<?= htmlspecialchars($last_test['name']) ?>)</span>
-                                    <?php endif; ?>
-                                </span>
-                            </div>
-                            <div>
-                                <span class="summary-label">Most Frequent Test</span>
-                                <span class="summary-value">
-                                    <?= $most_freq_test !== '-' ? '<span class="text-primary">' . htmlspecialchars($most_freq_test) . '</span>' : '-' ?>
-                                </span>
-                            </div>
-                        </div>
-                        <!-- Right: Unique tests list -->
-                        <div class="col-md-6 mb-2">
-                            <h5 class="summary-key" style="margin-bottom:16px;">
-                                <span class="summary-icon">🧾</span> All Unique Tests Ever Done:
-                            </h5>
-                            <ul class="test-summary-list">
-                                <?php foreach(array_keys($unique_tests) as $tname): ?>
-                                  <li style="margin-bottom:3px;">
-                                    <?= htmlspecialchars($tname) ?>
-                                    <span class="badge-testcount"><?= $test_count[$tname] ?> time<?= $test_count[$tname]>1?'s':'' ?></span>
-                                  </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        </div>
+                <div class="test-summary-glassy">
+                  <div class="ts-main-head"><span class="ts-icon"><img src="https://img.icons8.com/color/48/000000/combo-chart--v2.png" width="40" style="margin-right:2px;margin-top:-2px"></span>Test Summary</div>
+                  <div class="ts-summary-row">
+                    <div class="ts-summary-block">
+                      <span class="ts-summary-icon"><i class="fa-solid fa-vial-circle-check"></i></span>
+                      <div class="ts-summary-details">
+                        <span class="ts-summary-label">Total Tests Done</span>
+                        <span class="ts-summary-value"><?= $total_tests ?></span>
+                      </div>
                     </div>
+                    <div class="ts-summary-block">
+                      <span class="ts-summary-icon"><i class="fa-solid fa-flask"></i></span>
+                      <div class="ts-summary-details">
+                        <span class="ts-summary-label">Unique Tests Done</span>
+                        <span class="ts-summary-value"><?= count($unique_tests) ?></span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="ts-summary-row">
+                    <div class="ts-summary-block">
+                      <span class="ts-summary-icon"><i class="fa-solid fa-calendar-plus"></i></span>
+                      <div class="ts-summary-details">
+                        <span class="ts-summary-label">First Test Date</span>
+                        <span class="ts-summary-value" style="font-size:1.3rem;"><?= $first_test ? date('d-m-Y', strtotime($first_test['date'])) : '-' ?></span>
+                        <?php if ($first_test): ?>
+                          <span class="ts-summary-note">(<?= htmlspecialchars($first_test['name']) ?>)</span>
+                        <?php endif; ?>
+                      </div>
+                    </div>
+                    <div class="ts-summary-block">
+                      <span class="ts-summary-icon"><i class="fa-solid fa-calendar-check"></i></span>
+                      <div class="ts-summary-details">
+                        <span class="ts-summary-label">Last Test Taken</span>
+                        <span class="ts-summary-value" style="font-size:1.3rem;"><?= $last_test ? date('d-m-Y', strtotime($last_test['date'])) : '-' ?></span>
+                        <?php if ($last_test): ?>
+                          <span class="ts-summary-note">(<?= htmlspecialchars($last_test['name']) ?>)</span>
+                        <?php endif; ?>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-4 d-flex align-items-center flex-wrap">
+                    <span class="ts-summary-mostfreq-label">Most Frequent Test</span>
+                    <?php if($most_freq_test !== '-'): ?>
+                      <span class="ts-summary-mostfreq"><?= htmlspecialchars($most_freq_test) ?></span>
+                    <?php else: ?>
+                      <span class="ts-summary-mostfreq">-</span>
+                    <?php endif; ?>
+                  </div>
                 </div>
             <?php elseif ($search): ?>
                 <div class="alert alert-danger">No patient found for "<b><?= htmlspecialchars($search) ?></b>".</div>
