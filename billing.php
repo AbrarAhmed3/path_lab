@@ -76,6 +76,19 @@ if ($patient_id) {
         }
     }
 
+    // After $active_billing is loaded, fetch referred doctor if any
+$referred_doctor = null;
+if ($active_billing && !empty($active_billing['referred_by'])) {
+    $docId = intval($active_billing['referred_by']);
+    $stmt_doc = $conn->prepare("SELECT name FROM doctors WHERE doctor_id = ?");
+    $stmt_doc->bind_param("i", $docId);
+    $stmt_doc->execute();
+    $row_doc = $stmt_doc->get_result()->fetch_assoc();
+    $referred_doctor = $row_doc ? $row_doc['name'] : null;
+    $stmt_doc->close();
+}
+
+
     // 3) If we now have an active billing, recalculate totals & load tests
     if ($active_billing) {
         // 3a) Subtotal
@@ -409,7 +422,14 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                             <span class="badge <?= $badgeClass ?>"><?= ucfirst($bstatus) ?></span>
 
                         </h5>
-                        <p><strong>Patient ID:</strong> <?= $patient['patient_id'] ?> | <strong>Bill ID:</strong> <?= $active_billing['billing_id'] ?></p>
+                        <p>
+  <strong>Patient ID:</strong> <?= $patient['patient_id'] ?> |
+  <strong>Bill ID:</strong> <?= $active_billing['billing_id'] ?><br>
+  <strong>Mobile:</strong> <?= htmlspecialchars($patient['contact'] ?? '-') ?> |
+  <strong>Address:</strong> <?= htmlspecialchars($patient['address'] ?? '-') ?><br>
+  <strong>Referred By:</strong> <?= $referred_doctor ? htmlspecialchars($referred_doctor) : '-' ?>
+</p>
+
 
                         <?php if ($bstatus !== 'paid'): ?>
                             <div class="alert alert-warning">
@@ -574,7 +594,7 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
         <div style="border:1px solid #999; padding:16px; max-width:750px; margin:auto;">
 
             <!-- Header -->
-            <div style="text-align:center; border-bottom:1px solid #ccc; padding-bottom:8px; margin-bottom:10px;">
+            <div style="text-align:center; border-bottom:1px solid #ccc; margin-bottom:5px;">
                 <h2 style="margin:0; font-size:22px;"><?= strtoupper($lab_settings['lab_name']) ?></h2>
                 <p style="margin:0; font-size:12px; line-height:1.4;">
                     <?= $lab_settings['address_line1'] . ' ' . $lab_settings['address_line2'] ?>,
@@ -585,19 +605,66 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
             </div>
 
             <!-- Patient + Bill Info -->
-            <table style="width:100%; margin-bottom:10px;">
-                <tr>
-                    <td style="width:50%; vertical-align:top;">
-                        <strong>Patient Name:</strong> <?= htmlspecialchars($patient['name']) ?><br>
-                        <strong>Patient ID:</strong> <?= $patient['patient_id'] ?><br>
-                        <strong>Sex / Age:</strong> <?= ucfirst($patient['gender']) ?> / <?= $patient['age'] ?>
-                    </td>
-                    <td style="text-align:right; vertical-align:top;">
-                        <strong>Bill ID:</strong> <?= 'HDC_' . $active_billing['billing_id'] ?><br>
-                        <strong>Billing Date:</strong> <?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?>
-                    </td>
-                </tr>
-            </table>
+<table style="width:100%; font-size:14px; border:none;">
+  <tr>
+    <!-- LEFT BLOCK -->
+    <td style="vertical-align:top; width:55%;">
+      <table style="border:none; font-size:12px;">
+        <tr>
+          <td style="font-weight:bold; padding-right:4px; white-space:nowrap;">Patient Name</td>
+          <td style="padding-right:4px;">:</td>
+          <td><?= htmlspecialchars($patient['name']) ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Sex / Age</td>
+          <td>:</td>
+          <td><?= ucfirst($patient['gender']) ?> / <?= $patient['age'] ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Mobile</td>
+          <td>:</td>
+          <td><?= htmlspecialchars($patient['contact'] ?? '-') ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold; vertical-align:top;">Address</td>
+          <td style="vertical-align:top;">:</td>
+          <td><?= nl2br(htmlspecialchars($patient['address'] ?? '-')) ?></td>
+        </tr>
+      </table>
+    </td>
+
+    <!-- RIGHT BLOCK -->
+    <td style="vertical-align:top; text-align:left; width:40%;">
+      <table style="border:none; font-size:12px;">
+        <tr>
+          <td style="font-weight:bold; padding-right:4px; white-space:nowrap;">Patient ID</td>
+          <td>:</td>
+          <td>HPI_<?= $patient['patient_id'] ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Bill No</td>
+          <td>:</td>
+          <td>HDC_<?= $active_billing['billing_id'] ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Booking On</td>
+          <td>:</td>
+          <td><?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Referred By</td>
+          <td>:</td>
+          <td><?= $referred_doctor ? htmlspecialchars($referred_doctor) : '-' ?></td>
+        </tr>
+        <!-- Add more right-side rows if needed -->
+      </table>
+    </td>
+  </tr>
+</table>
+<hr>
+
+
+
 
             <!-- Test Charges Table -->
             <?php
@@ -731,21 +798,70 @@ $lab_settings = $conn->query("SELECT * FROM lab_settings WHERE id = 1")->fetch_a
                 Phone: <?= htmlspecialchars($lab_settings['phone']) ?> |
                 Email: <?= htmlspecialchars($lab_settings['email']) ?>
             </div>
-            <hr style="margin:8px 0; border-top:1px solid #000;">
+            
             <div style="font-weight:bold; margin-bottom:8px;">🧪 LAB COPY</div>
+            <hr style="margin:8px 0; border-top:1px solid #000;">
+
         </div>
 
         <!-- Patient + Bill Info -->
-        <table style="width:100%; margin-bottom:12px; font-size:12px;">
-            <tr>
-                <td><strong>Name:</strong> <?= htmlspecialchars($patient['name']) ?></td>
-                <td style="text-align:right;"><strong>Bill ID:</strong> <?= 'HDC_' . $active_billing['billing_id'] ?></td>
-            </tr>
-            <tr>
-                <td><strong>Age/Sex:</strong> <?= htmlspecialchars($patient['age'] . ' / ' . ucfirst($patient['gender'])) ?></td>
-                <td style="text-align:right;"><strong>Date:</strong> <?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?></td>
-            </tr>
-        </table>
+<table style="width:100%; font-size:14px; border:none;">
+  <tr>
+    <!-- LEFT BLOCK -->
+    <td style="vertical-align:top; width:55%;">
+      <table style="border:none; font-size:12px;">
+        <tr>
+          <td style="font-weight:bold; padding-right:4px; white-space:nowrap;">Patient Name</td>
+          <td style="padding-right:4px;">:</td>
+          <td><?= htmlspecialchars($patient['name']) ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Sex / Age</td>
+          <td>:</td>
+          <td><?= ucfirst($patient['gender']) ?> / <?= $patient['age'] ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Mobile</td>
+          <td>:</td>
+          <td><?= htmlspecialchars($patient['contact'] ?? '-') ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold; vertical-align:top;">Address</td>
+          <td style="vertical-align:top;">:</td>
+          <td><?= nl2br(htmlspecialchars($patient['address'] ?? '-')) ?></td>
+        </tr>
+      </table>
+    </td>
+
+    <!-- RIGHT BLOCK -->
+    <td style="vertical-align:top; text-align:left; width:40%;">
+      <table style="border:none; font-size:12px;">
+        <tr>
+          <td style="font-weight:bold; padding-right:4px; white-space:nowrap;">Patient ID</td>
+          <td>:</td>
+          <td>HPI_<?= $patient['patient_id'] ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Bill No</td>
+          <td>:</td>
+          <td>HDC_<?= $active_billing['billing_id'] ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Booking On</td>
+          <td>:</td>
+          <td><?= date('d-m-Y', strtotime($active_billing['billing_date'])) ?></td>
+        </tr>
+        <tr>
+          <td style="font-weight:bold;">Referred By</td>
+          <td>:</td>
+          <td><?= $referred_doctor ? htmlspecialchars($referred_doctor) : '-' ?></td>
+        </tr>
+        <!-- Add more right-side rows if needed -->
+      </table>
+    </td>
+  </tr>
+</table>
+<hr>
 
         <?php
         // group tests by category
