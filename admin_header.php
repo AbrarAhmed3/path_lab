@@ -137,6 +137,11 @@ $pending_count = ($pending_result && $pending_result->num_rows > 0) ? $pending_r
         📈 Dashboard
     </a>
 
+    <!-- Patient Details -->
+<a href="patient_details.php" class="<?= ($currentPage == 'patient_details.php') ? 'bg-primary text-white' : '' ?>">
+    🧑‍⚕️ Patient Details
+</a>
+
     <!-- Patients -->
     <a href="add_patient.php" class="<?= ($currentPage == 'add_patient.php') ? 'bg-primary text-white' : '' ?>">
         ➕ Register Patient
